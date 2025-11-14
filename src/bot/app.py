@@ -8,7 +8,7 @@ from telegram import Update
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
 from ..config.settings import settings
-from .handlers import document_handler, start_handler
+from .handlers import document_handler, process_queue_handler, start_handler
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +21,14 @@ def _configure_logging() -> None:
 
 
 def build_application() -> Application:
-    application = ApplicationBuilder().token(settings.telegram_token).build()
+    application = (
+        ApplicationBuilder()
+        .token(settings.telegram_token)
+        .build()
+    )
     application.add_handler(CommandHandler("start", start_handler))
-    doc_filter = filters.Document.FILE_EXTENSION(".doc")
+    application.add_handler(CommandHandler("process", process_queue_handler))
+    doc_filter = filters.Document.FileExtension("doc")
     application.add_handler(MessageHandler(doc_filter, document_handler))
     application.add_error_handler(_error_handler)
     return application

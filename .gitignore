@@ -17,3 +17,5 @@ venv/
 *.mo
 
 roadmap.md
+.pytest_cache/
+tmp/** */
