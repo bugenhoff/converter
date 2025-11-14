@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from uuid import uuid4
 
-from telegram import InputFile, Update
+from telegram import InputFile, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from ..config.settings import settings
@@ -17,6 +17,8 @@ from .queue import QUEUE_KEY, enqueue_file, flush_queue
 
 logger = logging.getLogger(__name__)
 
+PROCESS_CALLBACK_DATA = "process_queue"
+
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
@@ -24,8 +26,8 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     text = (
         "Привет! Пришли мне один или несколько файлов в формате .doc — я конвертирую их в .docx с сохранением"
-        " форматирования. После того как загрузишь всё, отправь команду /process, и я пришлю один архив со всеми"
-        " файлами без лишнего спама в чат."
+        " форматирования. После того как загрузишь всё, просто нажми кнопку «Обработка» под моими ответами —"
+        " я соберу один архив со всеми файлами без лишнего спама в чат."
     )
     await update.message.reply_text(text)
 
@@ -61,7 +63,8 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         arcname = _build_unique_arcname(document.file_name, context)
         queue_size = enqueue_file(context.chat_data, converted_path, arcname)
         await update.message.reply_text(
-            _queue_update_message(document.file_name, queue_size)
+            _queue_update_message(document.file_name, queue_size),
+            reply_markup=_build_process_keyboard(),
         )
     except ConversionError:
         logger.exception("Conversion failed", exc_info=True)
@@ -79,7 +82,12 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 async def process_queue_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
+    query = update.callback_query
+    if query:
+        await query.answer()
+
+    message = update.effective_message
+    if not message:
         return
 
     documents = flush_queue(context.chat_data)
@@ -90,16 +98,18 @@ async def process_queue_handler(update: Update, context: ContextTypes.DEFAULT_TY
         logger.warning("Skipped %d missing files from queue", missing)
 
     if not existing_docs:
-        await update.message.reply_text(
-            "Очередь пуста. Отправь .doc файлы и повтори команду /process, чтобы получить архив."
+        await message.reply_text(
+            "Очередь пуста. Отправь .doc файлы и нажми кнопку «Обработка», когда все будут готовы.",
+            reply_markup=_build_process_keyboard(),
         )
         return
 
     try:
         archive_path = await asyncio.to_thread(build_zip_archive, existing_docs, settings.temp_dir)
     except ValueError:
-        await update.message.reply_text(
-            "Не удалось сформировать архив: список файлов пуст. Попробуй отправить документы заново."
+        await message.reply_text(
+            "Не удалось сформировать архив: список файлов пуст. Попробуй отправить документы заново.",
+            reply_markup=_build_process_keyboard(),
         )
         for path, arcname in existing_docs:
             enqueue_file(context.chat_data, path, arcname)
@@ -107,7 +117,7 @@ async def process_queue_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
     try:
         with archive_path.open("rb") as archive_file:
-            await update.message.reply_document(
+            await message.reply_document(
                 InputFile(archive_file, filename=archive_path.name),
                 caption=f"Готово: {len(existing_docs)} файл(ов) в одном архиве.",
             )
@@ -153,9 +163,15 @@ def _queue_update_message(original_file_name: str, queue_size: int) -> str:
     if queue_size == 1:
         return (
             f"Файл {original_file_name} сконвертирован и добавлен в очередь."
-            " Отправь /process, когда закончишь добавлять документы, и я пришлю архив с результатами."
+            " Когда закончишь загружать документы, нажми кнопку «Обработка», и я соберу архив с результатами."
         )
     return (
         f"Файл {original_file_name} сконвертирован. В очереди {queue_size} файл(ов)."
-        " Когда загрузишь всё, вызови /process — я отправлю один архив без спама." 
+        " Когда загрузишь всё, нажми кнопку «Обработка» — я отправлю один архив без спама."
+    )
+
+
+def _build_process_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("Обработка", callback_data=PROCESS_CALLBACK_DATA)]]
     )

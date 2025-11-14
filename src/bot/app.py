@@ -5,10 +5,18 @@ from __future__ import annotations
 import logging
 
 from telegram import Update
-from telegram.ext import Application, ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import (
+    Application,
+    ApplicationBuilder,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 from ..config.settings import settings
-from .handlers import document_handler, process_queue_handler, start_handler
+from .handlers import PROCESS_CALLBACK_DATA, document_handler, process_queue_handler, start_handler
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +26,8 @@ def _configure_logging() -> None:
         level=settings.log_level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 def build_application() -> Application:
@@ -27,7 +37,7 @@ def build_application() -> Application:
         .build()
     )
     application.add_handler(CommandHandler("start", start_handler))
-    application.add_handler(CommandHandler("process", process_queue_handler))
+    application.add_handler(CallbackQueryHandler(process_queue_handler, pattern=f"^{PROCESS_CALLBACK_DATA}$"))
     doc_filter = filters.Document.FileExtension("doc")
     application.add_handler(MessageHandler(doc_filter, document_handler))
     application.add_error_handler(_error_handler)
