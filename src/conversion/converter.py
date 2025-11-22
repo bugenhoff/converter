@@ -1,4 +1,4 @@
-"""Utilities to convert legacy DOC files to modern DOCX via LibreOffice."""
+"""Utilities to convert legacy DOC/PDF files to modern DOCX documents."""
 
 from __future__ import annotations
 
@@ -7,15 +7,22 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
+import shlex
+import shutil
+from functools import lru_cache
 
 try:
     import ocrmypdf
-    import pikepdf
     from pdf2docx import Converter
 except ImportError:
     ocrmypdf = None
-    pikepdf = None
     Converter = None
+
+try:
+    from .groq_converter import convert_pdf_to_docx_via_groq, GroqConversionError
+except ImportError:
+    convert_pdf_to_docx_via_groq = None
+    GroqConversionError = None
 
 from ..config.settings import settings
 
@@ -40,8 +47,7 @@ def convert_doc_to_docx(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    command = [
-        libreoffice_bin,
+    command = _resolve_libreoffice_command(libreoffice_bin) + [
         "--headless",
         "--convert-to",
         "docx",
@@ -70,9 +76,26 @@ def convert_doc_to_docx(
 
 
 def convert_pdf_to_docx(source_path: Path, output_dir: Path) -> Path:
-    """Convert PDF to DOCX using OCR and layout reconstruction."""
-    if ocrmypdf is None or Converter is None or pikepdf is None:
-        raise ImportError("ocrmypdf, pikepdf and pdf2docx are required for PDF conversion")
+    """Convert PDF to DOCX using Groq LLM with OCR fallback."""
+    
+    # Try Groq LLM first (if available and configured)
+    if convert_pdf_to_docx_via_groq and settings.groq_api_key:
+        try:
+            logger.info("Attempting PDF conversion via Groq LLM")
+            return convert_pdf_to_docx_via_groq(source_path, output_dir)
+        except (GroqConversionError, Exception) as e:
+            logger.warning("Groq LLM conversion failed (%s), falling back to OCR method", e)
+    else:
+        logger.info("Groq not configured, using OCR method")
+    
+    # Fallback to OCR method
+    return _convert_pdf_to_docx_ocr(source_path, output_dir)
+
+
+def _convert_pdf_to_docx_ocr(source_path: Path, output_dir: Path) -> Path:
+    """Convert PDF to DOCX using OCR and layout reconstruction (fallback method)."""
+    if ocrmypdf is None or Converter is None:
+        raise ImportError("ocrmypdf and pdf2docx are required for PDF conversion")
 
     source_path = Path(source_path)
     if not source_path.exists():
@@ -81,92 +104,120 @@ def convert_pdf_to_docx(source_path: Path, output_dir: Path) -> Path:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Prepare environment for Tesseract
-    env = os.environ.copy()
     if settings.tessdata_prefix:
-        env["TESSDATA_PREFIX"] = settings.tessdata_prefix
+        os.environ.setdefault("TESSDATA_PREFIX", settings.tessdata_prefix)
 
-    # Create a temp dir for processing pages
-    with tempfile.TemporaryDirectory() as temp_pages_dir:
-        temp_pages_path = Path(temp_pages_dir)
-        
-        logger.info("Converting PDF to images: %s", source_path)
-        # 1. Convert PDF to images
-        # pdftoppm -png -r 300 source_path temp_pages_path/page
-        try:
-            subprocess.run(
-                ["pdftoppm", "-png", "-r", "300", str(source_path), str(temp_pages_path / "page")],
-                check=True,
-                capture_output=True
-            )
-        except subprocess.CalledProcessError as e:
-            raise ConversionError(f"Failed to convert PDF to images: {e.stderr}") from e
-        
-        # 2. OCR each image to text-only PDF
-        pdf_pages = []
-        # Sort files numerically: page-1.png, page-2.png, ...
-        image_files = sorted(
-            temp_pages_path.glob("page-*.png"),
-            key=lambda p: int(p.stem.split('-')[-1])
-        )
-        
-        logger.info("Starting OCR for %d pages...", len(image_files))
-        
-        for img_path in image_files:
-            # tesseract output filename should not have extension, it adds .pdf
-            output_base = img_path.with_suffix("")
-            pdf_page_path = img_path.with_suffix(".pdf")
-            
-            cmd = [
-                "tesseract", str(img_path), str(output_base),
-                "-l", "rus+eng",
-                "-c", "textonly_pdf=1",
-                "pdf"
-            ]
-            
-            try:
-                subprocess.run(cmd, env=env, check=True, capture_output=True)
-                if pdf_page_path.exists():
-                    pdf_pages.append(pdf_page_path)
-                else:
-                    logger.error("Tesseract did not produce output for %s", img_path)
-            except subprocess.CalledProcessError as e:
-                logger.error("OCR failed for page %s: %s", img_path, e.stderr)
-                raise ConversionError(f"OCR failed for page {img_path.name}") from e
-
-        if not pdf_pages:
-            raise ConversionError("No pages were successfully processed")
-
-        # 3. Merge PDFs
-        merged_pdf_path = output_dir / f"{source_path.stem}_textonly.pdf"
-        logger.info("Merging %d text-only PDF pages...", len(pdf_pages))
-        
-        try:
-            with pikepdf.new() as pdf:
-                for page_path in pdf_pages:
-                    with pikepdf.open(page_path) as p:
-                        pdf.pages.extend(p.pages)
-                pdf.save(merged_pdf_path)
-        except Exception as e:
-            raise ConversionError(f"Failed to merge PDF pages: {e}") from e
-
-    # 4. Convert to DOCX
     docx_path = output_dir / f"{source_path.stem}.docx"
-    logger.info("Starting PDF->DOCX conversion for %s", merged_pdf_path)
 
-    try:
-        cv = Converter(str(merged_pdf_path))
-        cv.convert(str(docx_path), start=0, end=None)
-        cv.close()
-        logger.info("PDF->DOCX conversion completed: %s", docx_path)
-    except Exception as e:
-        raise ConversionError(f"PDF to DOCX conversion failed: {e}") from e
-    finally:
-        # Cleanup intermediate merged PDF
-        if merged_pdf_path.exists():
-            merged_pdf_path.unlink()
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        searchable_pdf = Path(tmp_dir) / "searchable.pdf"
+        logger.info("Running OCR on %s", source_path)
+
+        try:
+            ocrmypdf.ocr(
+                str(source_path),
+                str(searchable_pdf),
+                language=settings.ocr_languages,
+                force_ocr=True,
+                optimize=0,
+                deskew=True,
+                progress_bar=False,
+            )
+        except Exception as exc:  # pragma: no cover - library-specific errors
+            raise ConversionError(f"OCR failed for {source_path.name}: {exc}") from exc
+
+        logger.info("Starting PDF->DOCX conversion for %s", source_path)
+
+        try:
+            cv = Converter(str(searchable_pdf))
+            cv.convert(str(docx_path), start=0, end=None)
+            cv.close()
+        except Exception as exc:
+            raise ConversionError(f"PDF to DOCX conversion failed: {exc}") from exc
 
     if not docx_path.exists():
         raise ConversionError("Output file is missing after conversion")
+    if docx_path.stat().st_size == 0:
+        raise ConversionError("Conversion produced an empty DOCX file")
 
     return docx_path
+
+
+def _resolve_libreoffice_command(libreoffice_hint: str | None) -> list[str]:
+    """Return an executable command list for LibreOffice, handling Flatpak installs."""
+
+    if libreoffice_hint:
+        command = _normalize_command(libreoffice_hint)
+        resolved = _ensure_executable(command)
+        if resolved:
+            return resolved
+        logger.warning(
+            "LibreOffice command '%s' is not available; falling back to auto-detection",
+            libreoffice_hint,
+        )
+
+    for candidate in ("libreoffice", "soffice"):
+        command = _normalize_command(candidate)
+        resolved = _ensure_executable(command)
+        if resolved:
+            return resolved
+
+    flatpak_command = _detect_flatpak_libreoffice()
+    if flatpak_command:
+        logger.info("Using Flatpak-installed LibreOffice")
+        return list(flatpak_command)
+
+    raise ConversionError(
+        "LibreOffice executable was not found. Install LibreOffice or set LIBREOFFICE_PATH."
+    )
+
+
+def _normalize_command(command: str) -> list[str]:
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return []
+    return parts
+
+
+def _ensure_executable(command: list[str]) -> list[str] | None:
+    if not command:
+        return None
+
+    executable = command[0]
+    exec_path = Path(executable)
+    if exec_path.is_file() and os.access(exec_path, os.X_OK):
+        return [str(exec_path), *command[1:]]
+
+    resolved = shutil.which(executable)
+    if resolved:
+        return [resolved, *command[1:]]
+
+    return None
+
+
+@lru_cache(maxsize=1)
+def _detect_flatpak_libreoffice() -> tuple[str, ...] | None:
+    flatpak = shutil.which("flatpak")
+    if not flatpak:
+        return None
+
+    try:
+        probe = subprocess.run(
+            [flatpak, "info", "org.libreoffice.LibreOffice"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+
+    if probe.returncode != 0:
+        return None
+
+    return (
+        flatpak,
+        "run",
+        "--command=soffice",
+        "org.libreoffice.LibreOffice",
+    )

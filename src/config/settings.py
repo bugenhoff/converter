@@ -21,6 +21,9 @@ class Settings:
     telegram_token: str
     libreoffice_path: str
     tessdata_prefix: str
+    ocr_languages: str
+    groq_api_key: str
+    groq_model: str
     temp_dir: Path
     log_level: str
 
@@ -33,6 +36,9 @@ settings = Settings(
     telegram_token=_load_env("TELEGRAM_BOT_TOKEN", required=True),
     libreoffice_path=_load_env("LIBREOFFICE_PATH", default="libreoffice"),
     tessdata_prefix=_load_env("TESSDATA_PREFIX", default="/root/tesseract/tessdata/"),
+    ocr_languages=_load_env("OCR_LANGUAGES", default="rus+eng+uzb+uzb_cyrl"),
+    groq_api_key=_load_env("GROQ_API_KEY", default=""),
+    groq_model=_load_env("GROQ_MODEL", default="llama-3.2-11b-vision-preview"),
     temp_dir=Path(_load_env("TEMP_DIR", default="./tmp")),
     log_level=_load_env("LOG_LEVEL", default="INFO"),
 )

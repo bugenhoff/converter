@@ -16,6 +16,11 @@ def test_conversion_failure_is_reported(tmp_path: Path, monkeypatch):
     src = tmp_path / "test.doc"
     src.write_text("dummy")
 
+    monkeypatch.setattr(
+        "src.conversion.converter._resolve_libreoffice_command",
+        lambda *_: ["libreoffice"],
+    )
+
     class FakeResult:
         returncode = 1
         stderr = "boom"
@@ -32,6 +37,11 @@ def test_conversion_failure_is_reported(tmp_path: Path, monkeypatch):
 def test_successful_conversion(tmp_path: Path, monkeypatch):
     src = tmp_path / "test.doc"
     src.write_text("dummy")
+
+    monkeypatch.setattr(
+        "src.conversion.converter._resolve_libreoffice_command",
+        lambda *_: ["libreoffice"],
+    )
 
     class FakeResult:
         returncode = 0

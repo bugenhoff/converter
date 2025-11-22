@@ -16,6 +16,6 @@ venv/
 *.pot
 *.mo
 
-roadmap.md
+#roadmap.md
 .pytest_cache/
 tmp/** */

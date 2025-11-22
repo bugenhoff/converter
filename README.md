@@ -19,6 +19,10 @@
    ```env
    TELEGRAM_BOT_TOKEN=123456:ABCDEF
    LIBREOFFICE_PATH=libreoffice
+   TESSDATA_PREFIX=/root/tesseract/tessdata/
+   OCR_LANGUAGES=rus+eng+uzb+uzb_cyrl
+   GROQ_API_KEY=your_groq_api_key_here
+   GROQ_MODEL=llama-3.2-11b-vision-preview
    TEMP_DIR=./tmp
    LOG_LEVEL=INFO
    ```
@@ -66,3 +70,6 @@ pytest
 
 - Бот работает в режиме polling и рассчитан на небольшие файлы (по умолчанию до 20 МБ).
 - Убедитесь, что `TEMP_DIR` доступен для записи, и присваивайте уникальные имена файлам внутри одного запроса.
+- Если LibreOffice установлен через Flatpak (`org.libreoffice.LibreOffice`), бот автоматически запустит его через `flatpak run --command=soffice ...`. При необходимости задайте собственную команду с помощью `LIBREOFFICE_PATH`.
+- **PDF обработка**: Бот использует Groq LLM (если настроен) для интеллектуальной обработки PDF документов, с fallback на OCR метод.  
+- OCR использует Tesseract. Настройте `TESSDATA_PREFIX` и `OCR_LANGUAGES`, чтобы перечислить доступные языки (по умолчанию `rus+eng+uzb+uzb_cyrl`).
