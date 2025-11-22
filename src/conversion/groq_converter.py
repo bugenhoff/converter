@@ -156,8 +156,8 @@ def _process_batch_with_groq(client, image_paths: list[Path], batch_idx: int) ->
             }
         })
 
-    # Advanced prompt for formatting and structure recognition
-    prompt = f"""Analyze these {len(image_paths)} pages (pages {start_page}-{start_page + len(image_paths) - 1}) and extract ALL content with EXACT formatting.
+    # Advanced prompt for formatting and structure recognition with enhanced color detection
+    prompt = f"""Analyze these {len(image_paths)} pages (pages {start_page}-{start_page + len(image_paths) - 1}) and extract ALL content with EXACT formatting and colors.
 
     JSON format:
     {{
@@ -171,7 +171,7 @@ def _process_batch_with_groq(client, image_paths: list[Path], batch_idx: int) ->
                         "content": "COMPLETE TEXT",
                         "formatting": {{
                             "bold": true/false,
-                            "color": "green|blue|red|black",
+                            "color": "green|blue|red|black|dark_blue|orange",
                             "alignment": "left|center|right|justified",
                             "font_size": "small|normal|large"
                         }},
@@ -184,7 +184,8 @@ def _process_batch_with_groq(client, image_paths: list[Path], batch_idx: int) ->
                             "headers": ["col1", "col2", "col3"],
                             "rows": [["cell1", "cell2", "cell3"]],
                             "has_borders": true,
-                            "header_styling": true
+                            "header_styling": true,
+                            "column_types": ["number", "text", "number", "number", "number"]
                         }}
                     }}
                 ]
@@ -192,13 +193,22 @@ def _process_batch_with_groq(client, image_paths: list[Path], batch_idx: int) ->
         ]
     }}
     
-    CRITICAL ANALYSIS:
-    - COLORS: Identify text colors (green BUYRUGI, etc.)
-    - BOLD: Mark all bold/emphasized text
-    - TABLES: Extract complete table structure with borders
-    - LAYOUT: Note date/number positioning (left vs right)
-    - NUMBERS: Highlight numeric formatting
-    - Extract EVERYTHING - no truncation
+    CRITICAL COLOR ANALYSIS:
+    - LOOK FOR ANY COLORED TEXT
+    - BOLD TEXT: Mark all emphasized/bold text accurately  
+    - TABLE STRUCTURE: Extract complete table with proper headers and data
+    - COLUMN ANALYSIS: Identify column types (number/text) for width optimization
+    - LAYOUT POSITIONING: Note left/right text alignment (dates vs numbers)
+    - NUMBERS: Highlight all numeric content formatting
+    
+    SPECIFIC EXAMPLES TO LOOK FOR:
+    - "BUYRUGI" text in GREEN color (this is very important!)
+    - Date numbers (20, 25, 18, 387) should be marked as bold
+    - Table columns: № (narrow numbers), Nomi (wide text), Soni/Narxi/Jami (medium numbers)
+    - Any text that appears in colors other than black
+    
+    
+    Extract EVERYTHING - no truncation allowed!
     """
 
     try:
@@ -367,6 +377,33 @@ def _add_formatted_paragraph(doc, text: str, formatting: dict) -> None:
     _apply_paragraph_alignment(para, formatting)
 
 
+def _add_text_with_buyrug_coloring(para, text: str, base_formatting: dict) -> None:
+    """Add text with special green coloring for BUYRUG words."""
+    import re
+    
+    # Find BUYRUG-related words and make them green
+    words = re.split(r'(\s+)', text)  # Split by whitespace but keep separators
+    
+    for word in words:
+        if 'BUYRUG' in word.upper() or 'BUYRUQ' in word.upper():
+            # Make BUYRUG words green and bold
+            run = para.add_run(word)
+            green_formatting = base_formatting.copy()
+            green_formatting["color"] = "green"
+            green_formatting["bold"] = True
+            _apply_text_formatting(run, green_formatting)
+        elif word.isdigit():
+            # Keep number highlighting
+            run = para.add_run(word)
+            number_formatting = base_formatting.copy()
+            number_formatting["bold"] = True
+            _apply_text_formatting(run, number_formatting)
+        else:
+            # Regular text
+            run = para.add_run(word)
+            _apply_text_formatting(run, base_formatting)
+
+
 def _add_formatted_list(doc, text: str, formatting: dict) -> None:
     """Add formatted list items."""
     lines = [line.strip() for line in text.split('\n') if line.strip()]
@@ -377,11 +414,12 @@ def _add_formatted_list(doc, text: str, formatting: dict) -> None:
 
 
 def _add_formatted_table(doc, table_data: dict, fallback_text: str) -> None:
-    """Add properly formatted table with borders."""
+    """Add properly formatted table with borders and optimized column widths."""
     headers = table_data.get("headers", [])
     rows = table_data.get("rows", [])
     has_borders = table_data.get("has_borders", True)
     header_styling = table_data.get("header_styling", True)
+    column_types = table_data.get("column_types", [])
     
     if not headers and not rows:
         # Fallback to parsing table from text
@@ -415,13 +453,16 @@ def _add_formatted_table(doc, table_data: dict, fallback_text: str) -> None:
                 if str(cell_data).replace(' ', '').replace(',', '').isdigit():
                     row.cells[i].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
     
+    # Optimize column widths based on content
+    _auto_adjust_column_widths(table, headers, column_types)
+    
     # Apply table styling
     if has_borders:
         _set_table_borders(table)
 
 
 def _add_table_from_text(doc, text: str) -> None:
-    """Parse table from text and create formatted table."""
+    """Parse table from text and create formatted table with optimized widths."""
     lines = [line.strip() for line in text.split('\n') if line.strip()]
     table_rows = []
     
@@ -442,6 +483,8 @@ def _add_table_from_text(doc, text: str) -> None:
     table = doc.add_table(rows=len(table_rows), cols=max_cols)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     
+    headers = table_rows[0] if table_rows else []
+    
     for i, row_data in enumerate(table_rows):
         for j, cell_data in enumerate(row_data):
             if j < len(table.rows[i].cells):
@@ -453,6 +496,12 @@ def _add_table_from_text(doc, text: str) -> None:
                     if cell.paragraphs and cell.paragraphs[0].runs:
                         cell.paragraphs[0].runs[0].bold = True
                     cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                # Right align numbers in data rows
+                elif str(cell_data).replace(' ', '').replace(',', '').replace('.', '').isdigit():
+                    table.rows[i].cells[j].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    
+    # Auto-adjust column widths
+    _auto_adjust_column_widths(table, headers, [])
     
     _set_table_borders(table)
 
@@ -485,14 +534,19 @@ def _apply_text_formatting(run, formatting: dict) -> None:
     if formatting.get("italic"):
         run.italic = True
     
-    # Apply color
+    # Apply color - expanded color support
     color = formatting.get("color", "black")
     if color == "green":
-        run.font.color.rgb = RGBColor(0, 128, 0)
+        run.font.color.rgb = RGBColor(0, 128, 0)  # Standard green
     elif color == "blue":
         run.font.color.rgb = RGBColor(0, 0, 255)
     elif color == "red":
         run.font.color.rgb = RGBColor(255, 0, 0)
+    elif color == "dark_blue":
+        run.font.color.rgb = RGBColor(0, 0, 139)
+    elif color == "orange":
+        run.font.color.rgb = RGBColor(255, 165, 0)
+    # Default is black, no need to set explicitly
     
     # Apply font size
     font_size = formatting.get("font_size", "normal")
@@ -502,6 +556,43 @@ def _apply_text_formatting(run, formatting: dict) -> None:
         run.font.size = Pt(10)
     else:
         run.font.size = Pt(12)
+
+
+def _auto_adjust_column_widths(table, headers: list, column_types: list) -> None:
+    """Automatically adjust column widths based on content type."""
+    try:
+        for i, header in enumerate(headers):
+            header_lower = str(header).lower()
+            
+            # Determine column type
+            if i < len(column_types):
+                col_type = column_types[i]
+            else:
+                # Auto-detect from header name
+                if header_lower in ['№', '#', 'no', 'num']:
+                    col_type = "number"
+                elif 'nomi' in header_lower or 'название' in header_lower or 'name' in header_lower:
+                    col_type = "text"
+                else:
+                    col_type = "number"  # Default for numeric columns
+            
+            # Set width based on type
+            if col_type == "number" and header_lower in ['№', '#', 'no', 'soni']:
+                # Very narrow for row numbers and quantities
+                table.columns[i].width = Inches(0.6)
+            elif col_type == "text" or 'nomi' in header_lower:
+                # Wide for text descriptions
+                table.columns[i].width = Inches(3.2)
+            elif header_lower in ['narxi', 'jami', 'price', 'total', 'сумма']:
+                # Medium width for money amounts
+                table.columns[i].width = Inches(1.4)
+            else:
+                # Default medium width
+                table.columns[i].width = Inches(1.2)
+                
+    except Exception as e:
+        logger.warning("Could not adjust column widths: %s", e)
+        # Continue without width adjustment
 
 
 def _apply_paragraph_alignment(para, formatting: dict) -> None:
