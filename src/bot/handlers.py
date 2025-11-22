@@ -11,7 +11,7 @@ from telegram import InputFile, InlineKeyboardButton, InlineKeyboardMarkup, Upda
 from telegram.ext import ContextTypes
 
 from ..config.settings import settings
-from ..conversion.converter import ConversionError, convert_doc_to_docx
+from ..conversion.converter import ConversionError, convert_doc_to_docx, convert_pdf_to_docx
 from .batching import build_zip_archive
 from .queue import QUEUE_KEY, enqueue_file, flush_queue
 
@@ -25,7 +25,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     text = (
-        "Привет! Пришли мне один или несколько файлов в формате .doc — я конвертирую их в .docx с сохранением"
+        "Привет! Пришли мне один или несколько файлов в формате .doc или .pdf (даже сканы) — я конвертирую их в .docx с сохранением"
         " форматирования. После того как загрузишь всё, просто нажми кнопку «Обработка» под моими ответами —"
         " я соберу один архив со всеми файлами без лишнего спама в чат."
     )
@@ -41,8 +41,8 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text("Пожалуйста, отправь файл в формате .doc.")
         return
 
-    if not document.file_name.lower().endswith(".doc"):
-        await update.message.reply_text("Я умею конвертировать только `.doc` файлы.")
+    if not document.file_name.lower().endswith((".doc", ".pdf")):
+        await update.message.reply_text("Я умею конвертировать только `.doc` и `.pdf` файлы.")
         return
 
     temp_dir = settings.temp_dir
@@ -53,12 +53,19 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await file.download_to_drive(custom_path=download_path)
 
     try:
-        converted_path = await asyncio.to_thread(
-            convert_doc_to_docx,
-            download_path,
-            temp_dir,
-            settings.libreoffice_path,
-        )
+        if document.file_name.lower().endswith(".doc"):
+            converted_path = await asyncio.to_thread(
+                convert_doc_to_docx,
+                download_path,
+                temp_dir,
+                settings.libreoffice_path,
+            )
+        else:
+            converted_path = await asyncio.to_thread(
+                convert_pdf_to_docx,
+                download_path,
+                temp_dir,
+            )
 
         arcname = _build_unique_arcname(document.file_name, context)
         queue_size = enqueue_file(context.chat_data, converted_path, arcname)
