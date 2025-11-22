@@ -2,98 +2,111 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from pathlib import Path
-from uuid import uuid4
 
-from telegram import InputFile, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import Update
 from telegram.ext import ContextTypes
 
-from ..config.settings import settings
-from ..conversion.converter import ConversionError, convert_doc_to_docx, convert_pdf_to_docx
-from .batching import build_zip_archive
-from .queue import QUEUE_KEY, enqueue_file, flush_queue
+from ..conversion.memory_processor import memory_processor
+from .auth import require_auth, log_user_access
+from .file_queue import MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB, queue_manager
 
 logger = logging.getLogger(__name__)
 
-PROCESS_CALLBACK_DATA = "process_queue"
 
-
+@require_auth
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
+    
+    user = update.effective_user
+    if user:
+        log_user_access(user.id, user.username, "start_command")
 
     text = (
-        "Привет! Пришли мне один или несколько файлов в формате .doc или .pdf (даже сканы) — я конвертирую их в .docx с сохранением"
-        " форматирования. После того как загрузишь всё, просто нажми кнопку «Обработка» под моими ответами —"
-        " я соберу один архив со всеми файлами без лишнего спама в чат."
+        "Привет! 👋\n\n"
+        "Пришли мне один или несколько файлов в формате .doc или .pdf (даже сканы) — "
+        "я автоматически конвертирую их в .docx с сохранением форматирования.\n\n"
+        "🕐 Просто отправляй файлы — я жду 10 секунд после каждого файла, "
+        "затем автоматически начинаю обработку всей группы и отправляю готовые DOCX файлы!"
     )
     await update.message.reply_text(text)
 
 
+@require_auth
 async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
 
     document = update.message.document
     if not document or not document.file_name:
-        await update.message.reply_text("Пожалуйста, отправь файл в формате .doc.")
+        await update.message.reply_text("Пожалуйста, отправь файл в формате .doc или .pdf.")
         return
+    
+    user = update.effective_user
+    if user:
+        log_user_access(user.id, user.username, f"upload_file: {document.file_name}")
 
     if not document.file_name.lower().endswith((".doc", ".pdf")):
         await update.message.reply_text("Я умею конвертировать только `.doc` и `.pdf` файлы.")
         return
 
-    temp_dir = settings.temp_dir
-    download_path = _unique_download_path(document.file_name)
-    converted_path: Path | None = None
+    if document.file_size and document.file_size > MAX_FILE_SIZE_BYTES:
+        await update.message.reply_text(
+            f"⚠️ {document.file_name} весит больше {MAX_FILE_SIZE_MB} МБ и не будет обработан."
+        )
+        return
 
-    file = await document.get_file()
-    await file.download_to_drive(custom_path=download_path)
-    logger.info("Downloaded file %s to %s", document.file_name, download_path)
+    telegram_file = await document.get_file()
+    file_bytes = await telegram_file.download_as_bytearray()
+    actual_size = len(file_bytes)
+
+    if actual_size == 0:
+        await update.message.reply_text("⚠️ Получен пустой файл. Проверьте документ и попробуйте снова.")
+        return
+
+    if actual_size > MAX_FILE_SIZE_BYTES:
+        await update.message.reply_text(
+            f"⚠️ {document.file_name} весит {actual_size / (1024 * 1024):.1f} МБ — лимит {MAX_FILE_SIZE_MB} МБ."
+        )
+        return
 
     try:
-        if document.file_name.lower().endswith(".doc"):
-            logger.info("Starting DOC conversion for %s", document.file_name)
-            converted_path = await asyncio.to_thread(
-                convert_doc_to_docx,
-                download_path,
-                temp_dir,
-                settings.libreoffice_path,
-            )
-        else:
-            logger.info("Starting PDF conversion for %s", document.file_name)
-            converted_path = await asyncio.to_thread(
-                convert_pdf_to_docx,
-                download_path,
-                temp_dir,
-            )
-        
-        logger.info("Conversion successful for %s -> %s", document.file_name, converted_path)
-
-        arcname = _build_unique_arcname(document.file_name, context)
-        queue_size = enqueue_file(context.chat_data, converted_path, arcname)
+        memory_handle = memory_processor.store_bytes(bytes(file_bytes), document.file_name)
+    except MemoryError:
         await update.message.reply_text(
-            _queue_update_message(document.file_name, queue_size),
-            reply_markup=_build_process_keyboard(),
+            "⚠️ Временная память заполнена. Подождите окончания текущей обработки и попробуйте снова."
         )
-    except ConversionError:
-        logger.exception("Conversion failed", exc_info=True)
-        await update.message.reply_text(
-            "Не удалось конвертировать документ. Проверьте настройки LibreOffice и повторите попытку."
-        )
-        if converted_path and converted_path.exists():
-            converted_path.unlink(missing_ok=True)
+        return
     finally:
-        if download_path.exists():
-            try:
-                download_path.unlink()
-            except OSError:
-                logger.debug("Не удалось удалить временный файл %s", download_path)
+        del file_bytes
+
+    file_type = "pdf" if document.file_name.lower().endswith(".pdf") else "doc"
+
+    logger.info(
+        "Loaded file %s (%d bytes) for user %s entirely in memory",
+        document.file_name,
+        actual_size,
+        update.effective_user.id if update.effective_user else "unknown",
+    )
+
+    try:
+        await queue_manager.add_file(
+            update=update,
+            context=context,
+            memory_handle=memory_handle,
+            original_name=document.file_name,
+            file_type=file_type,
+            file_size=actual_size,
+        )
+    except Exception:
+        memory_handle.release()
+        raise
 
 
+@require_auth
 async def process_queue_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Legacy handler for old 'process' button - now shows info about new system."""
     query = update.callback_query
     if query:
         await query.answer()
@@ -101,89 +114,16 @@ async def process_queue_handler(update: Update, context: ContextTypes.DEFAULT_TY
     message = update.effective_message
     if not message:
         return
+    
+    user = update.effective_user
+    if user:
+        log_user_access(user.id, user.username, "legacy_process_queue")
 
-    documents = flush_queue(context.chat_data)
-    existing_docs = [(path, name) for path, name in documents if path.exists()]
-    missing = len(documents) - len(existing_docs)
-
-    if missing:
-        logger.warning("Skipped %d missing files from queue", missing)
-
-    if not existing_docs:
-        await message.reply_text(
-            "Очередь пуста. Отправь .doc файлы и нажми кнопку «Обработка», когда все будут готовы.",
-            reply_markup=_build_process_keyboard(),
-        )
-        return
-
-    try:
-        archive_path = await asyncio.to_thread(build_zip_archive, existing_docs, settings.temp_dir)
-    except ValueError:
-        await message.reply_text(
-            "Не удалось сформировать архив: список файлов пуст. Попробуй отправить документы заново.",
-            reply_markup=_build_process_keyboard(),
-        )
-        for path, arcname in existing_docs:
-            enqueue_file(context.chat_data, path, arcname)
-        return
-
-    try:
-        with archive_path.open("rb") as archive_file:
-            await message.reply_document(
-                InputFile(archive_file, filename=archive_path.name),
-                caption=f"Готово: {len(existing_docs)} файл(ов) в одном архиве.",
-            )
-    except Exception:
-        logger.exception("Failed to send archive", exc_info=True)
-        for path, arcname in existing_docs:
-            enqueue_file(context.chat_data, path, arcname)
-        raise
-    finally:
-        for path, _ in existing_docs:
-            if path.exists():
-                try:
-                    path.unlink()
-                except OSError:
-                    logger.debug("Не удалось удалить файл %s", path)
-
-        if archive_path.exists():
-            try:
-                archive_path.unlink()
-            except OSError:
-                logger.debug("Не удалось удалить архив %s", archive_path)
-
-
-def _unique_download_path(original_file_name: str) -> Path:
-    safe_name = Path(original_file_name).name or "document.doc"
-    return settings.temp_dir / f"{uuid4().hex}_{safe_name}"
-
-
-def _build_unique_arcname(original_file_name: str, context: ContextTypes.DEFAULT_TYPE) -> str:
-    queue = context.chat_data.get(QUEUE_KEY, [])
-    existing = {item.get("arcname") for item in queue if item.get("arcname")}
-    base = Path(original_file_name).stem or "document"
-    suffix = ".docx"
-    candidate = f"{base}{suffix}"
-    counter = 1
-    while candidate in existing:
-        candidate = f"{base}_{counter}{suffix}"
-        counter += 1
-    return candidate
-
-
-def _queue_update_message(original_file_name: str, queue_size: int) -> str:
-    if queue_size == 1:
-        return (
-            f"Файл {original_file_name} сконвертирован и добавлен в очередь."
-            " Когда закончишь загружать документы, нажми кнопку «Обработка», и я соберу архив с результатами."
-        )
-    return (
-        f"Файл {original_file_name} сконвертирован. В очереди {queue_size} файл(ов)."
-        " Когда загрузишь всё, нажми кнопку «Обработка» — я отправлю один архив без спама."
-    )
-
-
-def _build_process_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("Обработка", callback_data=PROCESS_CALLBACK_DATA)]]
+    await message.reply_text(
+        "ℹ️ Система обработки обновлена!\n\n"
+        "Теперь файлы обрабатываются автоматически:\n"
+        "• Отправляй файлы как обычно\n" 
+        "• Жду 10 секунд после каждого файла\n"
+        "• Автоматически конвертирую и отправляю готовые DOCX\n\n"
+        "Кнопка больше не нужна — всё происходит автоматически! 🚀"
     )

@@ -26,10 +26,26 @@ class Settings:
     groq_model: str
     temp_dir: Path
     log_level: str
+    allowed_users_only: bool
+    allowed_user_ids: list[int]
 
     def __post_init__(self) -> None:
         self.temp_dir = Path(self.temp_dir).expanduser()
         self.temp_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Parse allowed user IDs from comma-separated string
+        if isinstance(self.allowed_user_ids, str):
+            if self.allowed_user_ids.strip():
+                try:
+                    self.allowed_user_ids = [
+                        int(uid.strip()) 
+                        for uid in self.allowed_user_ids.split(',') 
+                        if uid.strip()
+                    ]
+                except ValueError:
+                    raise RuntimeError("Invalid ALLOWED_USER_IDS format. Use comma-separated integers.")
+            else:
+                self.allowed_user_ids = []
 
 
 settings = Settings(
@@ -41,4 +57,6 @@ settings = Settings(
     groq_model=_load_env("GROQ_MODEL", default="llama-3.2-11b-vision-preview"),
     temp_dir=Path(_load_env("TEMP_DIR", default="./tmp")),
     log_level=_load_env("LOG_LEVEL", default="INFO"),
+    allowed_users_only=_load_env("ALLOWED_USERS_ONLY", default="true").lower() == "true",
+    allowed_user_ids=_load_env("ALLOWED_USER_IDS", default=""),
 )

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Quick test script to check the formatting in generated DOCX."""
+"""Enhanced test script to check formatting improvements in generated DOCX."""
 
 from pathlib import Path
 from docx import Document
+from docx.shared import Inches
 
 def analyze_docx_formatting(docx_path: Path):
-    """Analyze formatting in a DOCX file."""
+    """Analyze formatting in a DOCX file with focus on colors and column widths."""
     doc = Document(docx_path)
     
     print(f"📄 Analyzing: {docx_path}")
@@ -13,12 +14,13 @@ def analyze_docx_formatting(docx_path: Path):
     print(f"📋 Tables: {len(doc.tables)}")
     print()
     
-    # Check paragraphs
-    for i, para in enumerate(doc.paragraphs[:10]):  # First 10 paragraphs
+    # Check paragraphs for colors and formatting
+    color_found = False
+    for i, para in enumerate(doc.paragraphs[:15]):  # Check more paragraphs
         if para.text.strip():
             print(f"Para {i+1}: {para.text[:80]}...")
             
-            # Check runs for formatting
+            # Check runs for formatting and colors
             for j, run in enumerate(para.runs):
                 if run.text.strip():
                     formatting = []
@@ -26,9 +28,21 @@ def analyze_docx_formatting(docx_path: Path):
                         formatting.append("BOLD")
                     if run.italic:
                         formatting.append("ITALIC")
+                    
+                    # Check for colors
                     if hasattr(run.font, 'color') and run.font.color.rgb:
                         color = run.font.color.rgb
-                        formatting.append(f"COLOR({color.r},{color.g},{color.b})")
+                        try:
+                            # Try to access RGB values
+                            r, g, b = color
+                            color_str = f"RGB({r},{g},{b})"
+                            formatting.append(f"COLOR:{color_str}")
+                            if g > r and g > b:  # Greenish
+                                formatting.append("🟢GREEN!")
+                                color_found = True
+                        except (TypeError, ValueError):
+                            formatting.append("COLOR:DETECTED")
+                            color_found = True
                     
                     if formatting:
                         print(f"  Run {j+1}: '{run.text[:30]}' → {' | '.join(formatting)}")
@@ -38,19 +52,34 @@ def analyze_docx_formatting(docx_path: Path):
                 print(f"  Alignment: {para.alignment}")
             print()
     
-    # Check tables
+    if not color_found:
+        print("⚠️  No green colors detected in paragraphs")
+    
+    # Check tables with detailed column width analysis
     for i, table in enumerate(doc.tables):
         print(f"🗃️  Table {i+1}: {len(table.rows)} rows x {len(table.columns)} cols")
         
-        # Check first few cells for content
-        for row_idx, row in enumerate(table.rows[:3]):
+        # Check column widths
+        print("   Column widths:")
+        for col_idx, column in enumerate(table.columns):
+            width_inches = column.width.inches if column.width else "auto"
+            print(f"     Col {col_idx+1}: {width_inches} inches")
+        
+        # Check header row
+        if table.rows:
+            header_row = table.rows[0]
+            headers = [cell.text.strip() for cell in header_row.cells]
+            print(f"   Headers: {' | '.join(headers[:5])}")
+        
+        # Check first few data rows
+        for row_idx, row in enumerate(table.rows[1:4]):  # Skip header, show 3 data rows
             row_data = []
             for cell in row.cells:
                 cell_text = cell.text.strip()
                 if cell_text:
-                    row_data.append(cell_text[:20])
+                    row_data.append(cell_text[:15])
             if row_data:
-                print(f"   Row {row_idx+1}: {' | '.join(row_data)}")
+                print(f"   Row {row_idx+2}: {' | '.join(row_data)}")
         print()
 
 if __name__ == "__main__":

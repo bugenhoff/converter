@@ -17,9 +17,11 @@ try:
     from docx.enum.table import WD_TABLE_ALIGNMENT
     from docx.oxml.shared import OxmlElement, qn
     from PIL import Image
+    from pdf2image import convert_from_bytes
 except ImportError:
     groq = None
     Document = None
+    convert_from_bytes = None
 
 from ..config.settings import settings
 
@@ -73,6 +75,252 @@ def convert_pdf_to_docx_via_groq(source_path: Path, output_dir: Path) -> Path:
         raise GroqConversionError("Conversion produced an empty DOCX file")
 
     return docx_path
+
+
+def convert_pdf_bytes_to_docx_via_groq(pdf_bytes: bytes, original_name: str) -> bytes:
+    """Convert PDF bytes to DOCX bytes using Groq vision LLM (in-memory processing)."""
+    
+    if not groq or not Document or not convert_from_bytes:
+        raise ImportError("groq, python-docx, and pdf2image are required for memory conversion")
+    
+    if not settings.groq_api_key:
+        raise GroqConversionError("GROQ_API_KEY is not configured")
+    
+    logger.info("Converting PDF bytes to DOCX in memory: %s (%d bytes)", original_name, len(pdf_bytes))
+    
+    try:
+        # Convert PDF bytes to images in memory
+        images = _pdf_bytes_to_images(pdf_bytes)
+        
+        if not images:
+            raise GroqConversionError("Failed to extract images from PDF bytes")
+        
+        logger.info("Extracted %d page images from memory, sending to Groq LLM", len(images))
+        
+        # Process with Groq LLM
+        structured_content = _process_pil_images_with_groq(images)
+        
+        # Create DOCX in memory
+        docx_bytes = _create_docx_bytes_from_content(structured_content)
+        
+        logger.info("Memory-based LLM conversion completed for %s: %d bytes", 
+                   original_name, len(docx_bytes))
+        
+        return docx_bytes
+        
+    except Exception as e:
+        raise GroqConversionError(f"Memory conversion failed for {original_name}: {e}") from e
+
+
+def _pdf_bytes_to_images(pdf_bytes: bytes) -> list[Image.Image]:
+    """Convert PDF bytes to PIL Images in memory."""
+    try:
+        # Use pdf2image to convert bytes directly to PIL Images
+        images = convert_from_bytes(
+            pdf_bytes,
+            dpi=200,  # Higher DPI for better quality
+            fmt='PNG',
+            use_pdftocairo=True  # Better quality rendering
+        )
+        logger.debug("Converted PDF bytes to %d PIL images", len(images))
+        return images
+        
+    except Exception as e:
+        raise GroqConversionError(f"Failed to convert PDF bytes to images: {e}") from e
+
+
+def _process_pil_images_with_groq(images: list[Image.Image]) -> dict[str, Any]:
+    """Process PIL Images with Groq vision LLM in batches."""
+    
+    client = groq.Groq(api_key=settings.groq_api_key)
+    
+    # Split into batches of 3 images
+    batches = [images[i:i+3] for i in range(0, len(images), 3)]
+    logger.info("Processing %d images in %d batches", len(images), len(batches))
+    
+    all_results = []
+    
+    for batch_idx, batch_images in enumerate(batches):
+        logger.info("Processing batch %d/%d with %d images", batch_idx + 1, len(batches), len(batch_images))
+        
+        try:
+            batch_result = _process_pil_batch_with_groq(client, batch_images, batch_idx)
+            all_results.append(batch_result)
+        except Exception as e:
+            logger.error("Failed to process batch %d: %s", batch_idx + 1, e)
+            continue
+    
+    if not all_results:
+        raise GroqConversionError("All batches failed to process")
+    
+    # Merge all batch results into single document
+    return _merge_batch_results(all_results)
+
+
+def _process_pil_batch_with_groq(client, pil_images: list[Image.Image], batch_idx: int) -> dict[str, Any]:
+    """Process a batch of PIL Images with Groq LLM."""
+    
+    # Calculate page numbers for this batch
+    start_page = batch_idx * 3 + 1
+    
+    image_content = []
+    for img in pil_images:
+        # Resize image if too large to save tokens
+        if max(img.size) > 800:
+            ratio = 800 / max(img.size)
+            new_size = tuple(int(dim * ratio) for dim in img.size)
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
+        
+        # Convert PIL Image to base64 bytes
+        import io
+        img_buffer = io.BytesIO()
+        img.save(img_buffer, format='PNG', optimize=True)
+        img_bytes = img_buffer.getvalue()
+        b64_image = base64.b64encode(img_bytes).decode()
+        
+        image_content.append({
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:image/png;base64,{b64_image}"
+            }
+        })
+    
+    # Use existing prompt from the main function
+    prompt = f"""Analyze these {len(pil_images)} pages (pages {start_page}-{start_page + len(pil_images) - 1}) and extract ALL content with EXACT formatting.
+
+    JSON format:
+    {{
+        "title": "document title (batch 1 only)",
+        "pages": [
+            {{
+                "page_number": {start_page},
+                "sections": [
+                    {{
+                        "type": "header_row|heading|paragraph|table|list",
+                        "content": "COMPLETE TEXT",
+                        "formatting": {{
+                            "bold": true/false,
+                            "color": "green|blue|red|black",
+                            "alignment": "left|center|right|justified",
+                            "font_size": "small|normal|large"
+                        }},
+                        "layout": {{
+                            "left_text": "text on left side",
+                            "right_text": "text on right side",
+                            "position": "header|body|footer"
+                        }},
+                        "table_data": {{
+                            "headers": ["col1", "col2", "col3"],
+                            "rows": [["cell1", "cell2", "cell3"]],
+                            "has_borders": true,
+                            "header_styling": true
+                        }}
+                    }}
+                ]
+            }}
+        ]
+    }}
+    
+    CRITICAL ANALYSIS:
+    - COLORS: Identify text colors (green BUYRUGI, etc.)
+    - BOLD: Mark all bold/emphasized text
+    - TABLES: Extract complete table structure with borders
+    - LAYOUT: Note date/number positioning (left vs right)
+    - NUMBERS: Highlight numeric formatting
+    - Extract EVERYTHING - no truncation
+    """
+
+    try:
+        response = client.chat.completions.create(
+            model=settings.groq_model,
+            messages=[
+                {
+                    "role": "user", 
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        *image_content
+                    ]
+                }
+            ],
+            response_format={"type": "json_object"},
+            max_tokens=8000,
+            temperature=0.1
+        )
+        
+        content = response.choices[0].message.content
+        logger.info("Raw Groq response for batch %d: %s", batch_idx + 1, content[:500] + "...")
+        
+        import json
+        result = json.loads(content)
+        return result
+        
+    except Exception as e:
+        raise GroqConversionError(f"Groq API request failed: {e}") from e
+
+
+def _create_docx_bytes_from_content(content: dict[str, Any]) -> bytes:
+    """Create DOCX document from structured content and return as bytes."""
+    import io
+    
+    # Create document in memory  
+    doc = Document()
+    
+    # Use existing _create_docx_from_content logic but write to BytesIO
+    def safe_text(value: Any) -> str:
+        if isinstance(value, list):
+            return ' '.join(str(item) for item in value if item)
+        return str(value) if value else ""
+    
+    # Add title if present
+    title = content.get("title")
+    if title:
+        title_text = safe_text(title).strip()
+        if title_text:
+            title_para = doc.add_heading(title_text, level=1)
+            title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            logger.info("Added document title: %s", title_text[:50])
+    
+    # Process each page using existing functions
+    pages = content.get("pages", [])
+    logger.info("Processing %d pages for DOCX creation", len(pages))
+    
+    for page_idx, page in enumerate(pages):
+        page_num = page.get("page_number", page_idx + 1)
+        sections = page.get("sections", [])
+        logger.info("Page %d: processing %d sections", page_num, len(sections))
+        
+        for section_idx, section in enumerate(sections):
+            section_type = section.get("type", "paragraph")
+            text_content = safe_text(section.get("content", "")).strip()
+            formatting = section.get("formatting", {})
+            layout = section.get("layout", {})
+            table_data = section.get("table_data", {})
+            
+            if not text_content and not table_data:
+                logger.debug("Skipping empty section %d on page %d", section_idx, page_num)
+                continue
+            
+            logger.debug("Adding %s: %s", section_type, text_content[:100])
+            
+            # Handle different section types using existing functions
+            if section_type == "header_row":
+                _add_header_row(doc, layout, formatting)
+            elif section_type == "heading":
+                _add_formatted_heading(doc, text_content, formatting)
+            elif section_type == "table" and table_data:
+                _add_formatted_table(doc, table_data, text_content)
+            elif section_type == "list":
+                _add_formatted_list(doc, text_content, formatting)
+            else:  # paragraph
+                _add_formatted_paragraph(doc, text_content, formatting)
+    
+    # Save document to bytes
+    docx_buffer = io.BytesIO()
+    doc.save(docx_buffer)
+    docx_bytes = docx_buffer.getvalue()
+    
+    logger.info("DOCX document created in memory: %d bytes", len(docx_bytes))
+    return docx_bytes
 
 
 def _pdf_to_images(pdf_path: Path, output_dir: Path) -> list[Path]:
