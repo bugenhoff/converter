@@ -57,3 +57,26 @@ def test_successful_conversion(tmp_path: Path, monkeypatch):
     converted = convert_doc_to_docx(src, tmp_path, "libreoffice")
     assert converted.exists()
     assert converted.suffix == ".docx"
+
+
+def test_convert_pdf_groq():
+    """Test Groq PDF conversion with real file."""
+    from src.conversion.groq_converter import convert_pdf_to_docx_via_groq
+    
+    pdf_file = Path("387-test.pdf")
+    if not pdf_file.exists():
+        pytest.skip("PDF test file not found")
+        
+    output_dir = Path("tmp")
+    output_dir.mkdir(exist_ok=True)
+    
+    try:
+        result = convert_pdf_to_docx_via_groq(pdf_file, output_dir)
+        assert result.exists()
+        assert result.suffix == ".docx"
+        assert result.stat().st_size > 0
+        print(f"✅ Groq conversion successful: {result}")
+    except ImportError as e:
+        pytest.skip(f"Required dependencies not available: {e}")
+    except Exception as e:
+        pytest.fail(f"Groq conversion failed: {e}")

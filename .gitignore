@@ -9,7 +9,7 @@ venv/
 .venv/
 
 # Environment
-#.env
+.env
 
 # Misc
 *.log
@@ -19,3 +19,5 @@ venv/
 #roadmap.md
 .pytest_cache/
 tmp/** */
+387-test.pdf
+.~lock.387-test.pdf#
