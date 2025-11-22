@@ -5,13 +5,16 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 try:
     import ocrmypdf
+    import pikepdf
     from pdf2docx import Converter
 except ImportError:
     ocrmypdf = None
+    pikepdf = None
     Converter = None
 
 from ..config.settings import settings
@@ -68,8 +71,8 @@ def convert_doc_to_docx(
 
 def convert_pdf_to_docx(source_path: Path, output_dir: Path) -> Path:
     """Convert PDF to DOCX using OCR and layout reconstruction."""
-    if ocrmypdf is None or Converter is None:
-        raise ImportError("ocrmypdf and pdf2docx are required for PDF conversion")
+    if ocrmypdf is None or Converter is None or pikepdf is None:
+        raise ImportError("ocrmypdf, pikepdf and pdf2docx are required for PDF conversion")
 
     source_path = Path(source_path)
     if not source_path.exists():
@@ -78,46 +81,90 @@ def convert_pdf_to_docx(source_path: Path, output_dir: Path) -> Path:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. OCR the PDF (create a temp file for the OCR'd version)
-    ocr_pdf_path = output_dir / f"{source_path.stem}_ocr.pdf"
-    logger.info("Starting OCR for %s -> %s", source_path, ocr_pdf_path)
-
-    # Set TESSDATA_PREFIX for tesseract
+    # Prepare environment for Tesseract
+    env = os.environ.copy()
     if settings.tessdata_prefix:
-        os.environ["TESSDATA_PREFIX"] = settings.tessdata_prefix
+        env["TESSDATA_PREFIX"] = settings.tessdata_prefix
 
-    try:
-        # We use force_ocr=True because the user specified "images"
-        # and we want to ensure we have a good text layer for pdf2docx.
-        ocrmypdf.ocr(
-            input_file=source_path,
-            output_file=ocr_pdf_path,
-            language="rus+eng",
-            force_ocr=True,
-            progress_bar=False,
+    # Create a temp dir for processing pages
+    with tempfile.TemporaryDirectory() as temp_pages_dir:
+        temp_pages_path = Path(temp_pages_dir)
+        
+        logger.info("Converting PDF to images: %s", source_path)
+        # 1. Convert PDF to images
+        # pdftoppm -png -r 300 source_path temp_pages_path/page
+        try:
+            subprocess.run(
+                ["pdftoppm", "-png", "-r", "300", str(source_path), str(temp_pages_path / "page")],
+                check=True,
+                capture_output=True
+            )
+        except subprocess.CalledProcessError as e:
+            raise ConversionError(f"Failed to convert PDF to images: {e.stderr}") from e
+        
+        # 2. OCR each image to text-only PDF
+        pdf_pages = []
+        # Sort files numerically: page-1.png, page-2.png, ...
+        image_files = sorted(
+            temp_pages_path.glob("page-*.png"),
+            key=lambda p: int(p.stem.split('-')[-1])
         )
-        logger.info("OCR completed for %s", source_path)
-    except Exception as e:
-        # Clean up if OCR failed but file was created
-        if ocr_pdf_path.exists():
-            ocr_pdf_path.unlink()
-        raise ConversionError(f"OCR failed: {e}") from e
+        
+        logger.info("Starting OCR for %d pages...", len(image_files))
+        
+        for img_path in image_files:
+            # tesseract output filename should not have extension, it adds .pdf
+            output_base = img_path.with_suffix("")
+            pdf_page_path = img_path.with_suffix(".pdf")
+            
+            cmd = [
+                "tesseract", str(img_path), str(output_base),
+                "-l", "rus+eng",
+                "-c", "textonly_pdf=1",
+                "pdf"
+            ]
+            
+            try:
+                subprocess.run(cmd, env=env, check=True, capture_output=True)
+                if pdf_page_path.exists():
+                    pdf_pages.append(pdf_page_path)
+                else:
+                    logger.error("Tesseract did not produce output for %s", img_path)
+            except subprocess.CalledProcessError as e:
+                logger.error("OCR failed for page %s: %s", img_path, e.stderr)
+                raise ConversionError(f"OCR failed for page {img_path.name}") from e
 
-    # 2. Convert OCR'd PDF to DOCX
+        if not pdf_pages:
+            raise ConversionError("No pages were successfully processed")
+
+        # 3. Merge PDFs
+        merged_pdf_path = output_dir / f"{source_path.stem}_textonly.pdf"
+        logger.info("Merging %d text-only PDF pages...", len(pdf_pages))
+        
+        try:
+            with pikepdf.new() as pdf:
+                for page_path in pdf_pages:
+                    with pikepdf.open(page_path) as p:
+                        pdf.pages.extend(p.pages)
+                pdf.save(merged_pdf_path)
+        except Exception as e:
+            raise ConversionError(f"Failed to merge PDF pages: {e}") from e
+
+    # 4. Convert to DOCX
     docx_path = output_dir / f"{source_path.stem}.docx"
-    logger.info("Starting PDF->DOCX conversion for %s", ocr_pdf_path)
+    logger.info("Starting PDF->DOCX conversion for %s", merged_pdf_path)
 
     try:
-        cv = Converter(str(ocr_pdf_path))
+        cv = Converter(str(merged_pdf_path))
         cv.convert(str(docx_path), start=0, end=None)
         cv.close()
         logger.info("PDF->DOCX conversion completed: %s", docx_path)
     except Exception as e:
         raise ConversionError(f"PDF to DOCX conversion failed: {e}") from e
     finally:
-        # Cleanup intermediate OCR file
-        if ocr_pdf_path.exists():
-            ocr_pdf_path.unlink()
+        # Cleanup intermediate merged PDF
+        if merged_pdf_path.exists():
+            merged_pdf_path.unlink()
 
     if not docx_path.exists():
         raise ConversionError("Output file is missing after conversion")
