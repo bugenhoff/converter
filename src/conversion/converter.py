@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 from pathlib import Path
 
@@ -12,6 +13,8 @@ try:
 except ImportError:
     ocrmypdf = None
     Converter = None
+
+from ..config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +81,10 @@ def convert_pdf_to_docx(source_path: Path, output_dir: Path) -> Path:
     # 1. OCR the PDF (create a temp file for the OCR'd version)
     ocr_pdf_path = output_dir / f"{source_path.stem}_ocr.pdf"
     logger.info("Starting OCR for %s -> %s", source_path, ocr_pdf_path)
+
+    # Set TESSDATA_PREFIX for tesseract
+    if settings.tessdata_prefix:
+        os.environ["TESSDATA_PREFIX"] = settings.tessdata_prefix
 
     try:
         # We use force_ocr=True because the user specified "images"
