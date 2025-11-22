@@ -38,7 +38,7 @@ def build_application() -> Application:
     )
     application.add_handler(CommandHandler("start", start_handler))
     application.add_handler(CallbackQueryHandler(process_queue_handler, pattern=f"^{PROCESS_CALLBACK_DATA}$"))
-    doc_filter = filters.Document.FileExtension("doc")
+    doc_filter = filters.Document.FileExtension("doc") | filters.Document.FileExtension("pdf")
     application.add_handler(MessageHandler(doc_filter, document_handler))
     application.add_error_handler(_error_handler)
     return application

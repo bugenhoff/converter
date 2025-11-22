@@ -77,6 +77,7 @@ def convert_pdf_to_docx(source_path: Path, output_dir: Path) -> Path:
 
     # 1. OCR the PDF (create a temp file for the OCR'd version)
     ocr_pdf_path = output_dir / f"{source_path.stem}_ocr.pdf"
+    logger.info("Starting OCR for %s -> %s", source_path, ocr_pdf_path)
 
     try:
         # We use force_ocr=True because the user specified "images"
@@ -88,6 +89,7 @@ def convert_pdf_to_docx(source_path: Path, output_dir: Path) -> Path:
             force_ocr=True,
             progress_bar=False,
         )
+        logger.info("OCR completed for %s", source_path)
     except Exception as e:
         # Clean up if OCR failed but file was created
         if ocr_pdf_path.exists():
@@ -96,11 +98,13 @@ def convert_pdf_to_docx(source_path: Path, output_dir: Path) -> Path:
 
     # 2. Convert OCR'd PDF to DOCX
     docx_path = output_dir / f"{source_path.stem}.docx"
+    logger.info("Starting PDF->DOCX conversion for %s", ocr_pdf_path)
 
     try:
         cv = Converter(str(ocr_pdf_path))
         cv.convert(str(docx_path), start=0, end=None)
         cv.close()
+        logger.info("PDF->DOCX conversion completed: %s", docx_path)
     except Exception as e:
         raise ConversionError(f"PDF to DOCX conversion failed: {e}") from e
     finally:

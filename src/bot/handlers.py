@@ -51,9 +51,11 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     file = await document.get_file()
     await file.download_to_drive(custom_path=download_path)
+    logger.info("Downloaded file %s to %s", document.file_name, download_path)
 
     try:
         if document.file_name.lower().endswith(".doc"):
+            logger.info("Starting DOC conversion for %s", document.file_name)
             converted_path = await asyncio.to_thread(
                 convert_doc_to_docx,
                 download_path,
@@ -61,11 +63,14 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 settings.libreoffice_path,
             )
         else:
+            logger.info("Starting PDF conversion for %s", document.file_name)
             converted_path = await asyncio.to_thread(
                 convert_pdf_to_docx,
                 download_path,
                 temp_dir,
             )
+        
+        logger.info("Conversion successful for %s -> %s", document.file_name, converted_path)
 
         arcname = _build_unique_arcname(document.file_name, context)
         queue_size = enqueue_file(context.chat_data, converted_path, arcname)
