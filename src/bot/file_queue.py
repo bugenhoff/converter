@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from telegram import InputFile, Update
+from telegram import InputFile, Update, Message
 from telegram.ext import ContextTypes
 
 from ..config.settings import settings
@@ -28,6 +28,23 @@ PROCESSING_WINDOW_SECONDS = 10
 MAX_FILES_PER_BATCH = 10
 MAX_FILE_SIZE_MB = 50
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+
+
+def create_progress_bar(current: int, total: int, length: int = 20) -> str:
+    """Create a visual progress bar."""
+    if total == 0:
+        return "█" * length + " 0%"
+    
+    filled = int(length * current / total)
+    bar = "█" * filled + "░" * (length - filled)
+    percentage = int(100 * current / total)
+    return f"{bar} {percentage}%"
+
+
+def get_loading_animation(step: int) -> str:
+    """Get loading animation character."""
+    frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    return frames[step % len(frames)]
 
 
 @dataclass
@@ -53,6 +70,8 @@ class UserQueue:
     waiting_timer_task: Optional[asyncio.Task] = None
     last_file_time: float = field(default_factory=time.time)
     chat_id: Optional[int] = None  # Store chat_id for sending messages
+    progress_message: Optional[Message] = None  # Store progress message for editing
+    animation_task: Optional[asyncio.Task] = None  # Animation task
 
 
 class FileQueueManager:
@@ -243,6 +262,41 @@ class FileQueueManager:
 
         finally:
             user_queue.is_processing = False
+            
+            # Stop animation and clear progress message
+            if user_queue.animation_task:
+                user_queue.animation_task.cancel()
+                user_queue.animation_task = None
+            
+            # Final progress update
+            if user_queue.progress_message:
+                try:
+                    if results:
+                        success_count = len(results)
+                        progress_bar = create_progress_bar(success_count, len(files_to_process))
+                        final_message = (
+                            f"✅ **Обработка завершена!**\n\n"
+                            f"{progress_bar}\n\n"
+                            f"📁 Готово: {success_count}/{len(files_to_process)} файл(ов)"
+                        )
+                    else:
+                        final_message = (
+                            f"❌ **Обработка завершена с ошибками**\n\n"
+                            f"{'░' * 20} 0%\n\n"
+                            f"⚠️ Не удалось конвертировать файлы"
+                        )
+                    
+                    await context.bot.edit_message_text(
+                        chat_id=user_queue.chat_id,
+                        message_id=user_queue.progress_message.message_id,
+                        text=final_message,
+                        parse_mode='Markdown'
+                    )
+                except Exception:
+                    logger.debug("Failed to update final progress for user %d", user_id)
+                
+                user_queue.progress_message = None
+            
             for queued_file in files_to_process:
                 queued_file.memory_handle.release()
 
@@ -367,16 +421,78 @@ class FileQueueManager:
         user_id: int, 
         files_count: int
     ) -> None:
-        """Notify user that processing started."""
+        """Notify user that processing started with dynamic progress message."""
         user_queue = self.user_queues.get(user_id)
         if not user_queue or not user_queue.chat_id:
             return
             
         try:
-            message = f"🚀 Начинаю обработку {files_count} файл(ов)..."
-            await context.bot.send_message(chat_id=user_queue.chat_id, text=message)
+            # Cancel any existing animation
+            if user_queue.animation_task:
+                user_queue.animation_task.cancel()
+            
+            # Create initial progress message
+            progress_bar = create_progress_bar(0, files_count)
+            message = (
+                f"🚀 **Начинаю обработку {files_count} файл(ов)**\n\n"
+                f"{progress_bar}\n\n"
+                f"⠋ Подготовка к конвертации..."
+            )
+            
+            progress_message = await context.bot.send_message(
+                chat_id=user_queue.chat_id, 
+                text=message,
+                parse_mode='Markdown'
+            )
+            user_queue.progress_message = progress_message
+            
+            # Start loading animation
+            user_queue.animation_task = asyncio.create_task(
+                self._animate_loading(context, user_id, "Подготовка к конвертации...")
+            )
+            
         except Exception:
             logger.exception("Failed to notify processing start for user %d", user_id)
+    
+    async def _animate_loading(
+        self,
+        context: ContextTypes.DEFAULT_TYPE,
+        user_id: int,
+        status_text: str
+    ) -> None:
+        """Animate loading spinner for better UX."""
+        user_queue = self.user_queues.get(user_id)
+        if not user_queue or not user_queue.progress_message:
+            return
+            
+        animation_step = 0
+        try:
+            while True:
+                # Update only the animation character, keep the rest
+                animation_char = get_loading_animation(animation_step)
+                
+                # Extract current progress bar from message
+                current_text = user_queue.progress_message.text or ""
+                lines = current_text.split('\n')
+                
+                if len(lines) >= 4:
+                    # Keep title and progress bar, update only animation line
+                    new_text = '\n'.join(lines[:3]) + f"\n{animation_char} {status_text}"
+                    
+                    await context.bot.edit_message_text(
+                        chat_id=user_queue.chat_id,
+                        message_id=user_queue.progress_message.message_id,
+                        text=new_text,
+                        parse_mode='Markdown'
+                    )
+                
+                animation_step += 1
+                await asyncio.sleep(0.5)  # Animation speed
+                
+        except asyncio.CancelledError:
+            logger.debug("Animation cancelled for user %d", user_id)
+        except Exception:
+            logger.debug("Animation failed for user %d", user_id)
     
     async def _notify_file_progress(
         self, 
@@ -386,17 +502,40 @@ class FileQueueManager:
         total: int, 
         filename: str
     ) -> None:
-        """Notify user about current file processing."""
+        """Update dynamic progress message with current file processing."""
         user_queue = self.user_queues.get(user_id)
-        if not user_queue or not user_queue.chat_id:
+        if not user_queue or not user_queue.chat_id or not user_queue.progress_message:
             return
             
-        message = f"⚙️ Обрабатываю {current}/{total}: {filename}"
         try:
-            await context.bot.send_message(chat_id=user_queue.chat_id, text=message)
+            # Cancel current animation
+            if user_queue.animation_task:
+                user_queue.animation_task.cancel()
+            
+            # Create updated progress message
+            progress_bar = create_progress_bar(current - 1, total)  # current-1 because we're starting processing
+            short_filename = filename[:30] + "..." if len(filename) > 30 else filename
+            
+            message = (
+                f"🚀 **Обрабатываю файлы ({current}/{total})**\n\n"
+                f"{progress_bar}\n\n"
+                f"⚙️ Конвертирую: {short_filename}"
+            )
+            
+            await context.bot.edit_message_text(
+                chat_id=user_queue.chat_id,
+                message_id=user_queue.progress_message.message_id,
+                text=message,
+                parse_mode='Markdown'
+            )
+            
+            # Start new animation for current file
+            user_queue.animation_task = asyncio.create_task(
+                self._animate_loading(context, user_id, f"Конвертирую: {short_filename}")
+            )
+            
         except Exception:
-            # Don't fail processing if notification fails
-            logger.debug("Failed to send progress notification")
+            logger.debug("Failed to update progress for user %d", user_id)
     
     async def _notify_conversion_error(
         self, 
@@ -441,17 +580,12 @@ class FileQueueManager:
                 logger.error("Failed to send file %s: %s", original_name, exc)
                 await self._notify_conversion_error(context, user_id, original_name)
 
+        # Final summary is now handled in the progress message update
+        # No need for separate completion message
         if success_count > 0:
-            try:
-                await context.bot.send_message(
-                    chat_id=user_queue.chat_id,
-                    text=(
-                        f"✅ Обработка завершена! Успешно конвертировано: "
-                        f"{success_count}/{len(results)} файл(ов)"
-                    ),
-                )
-            except Exception:
-                logger.exception("Failed to send completion summary to user %d", user_id)
+            logger.info("Successfully sent %d/%d files to user %d", success_count, len(results), user_id)
+        else:
+            logger.warning("Failed to send any files to user %d", user_id)
 
 
 # Global queue manager instance
