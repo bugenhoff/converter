@@ -407,7 +407,7 @@ class FileQueueManager:
         else:
             message = (
                 f"📁 Файл добавлен в очередь ({files_count}/{MAX_FILES_PER_BATCH}). "
-                f"Жду ещё {PROCESSING_WINDOW_SECONDS} с для одного батча."
+                f"Жду ещё {PROCESSING_WINDOW_SECONDS} секунд."
             )
         
         try:
