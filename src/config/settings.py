@@ -124,8 +124,8 @@ settings = Settings(
     groq_api_key=_load_env("GROQ_API_KEY", default=""),
     groq_model=_load_env("GROQ_MODEL", default="llama-3.2-11b-vision-preview"),
     pdf_conversion_mode=_load_env("PDF_CONVERSION_MODE", default="groq_only"),
-    groq_max_tokens=_load_env_int("GROQ_MAX_TOKENS", default=8000, minimum=256, maximum=32768),
-    groq_batch_size=_load_env_int("GROQ_BATCH_SIZE", default=5, minimum=1, maximum=10),
+    groq_max_tokens=_load_env_int("GROQ_MAX_TOKENS", default=12000, minimum=256, maximum=32768),
+    groq_batch_size=_load_env_int("GROQ_BATCH_SIZE", default=1, minimum=1, maximum=10),
     groq_max_requests_per_document=_load_env_int(
         "GROQ_MAX_REQUESTS_PER_DOCUMENT",
         default=0,

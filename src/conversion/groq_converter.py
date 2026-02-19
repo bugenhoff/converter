@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import subprocess
 import tempfile
@@ -29,6 +30,7 @@ from ..config.settings import settings
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
+_DEFAULT_MIN_TEXT_CHARS_PER_PAGE = 20
 
 
 class GroqConversionError(RuntimeError):
@@ -152,54 +154,12 @@ def _pdf_bytes_to_images(pdf_bytes: bytes) -> list[Image.Image]:
 
 
 def _process_pil_images_with_groq(images: list[Image.Image]) -> dict[str, Any]:
-    """Process PIL Images with simple fixed-size batching (no adaptive logic)."""
-    if not images:
-        raise GroqConversionError("No images to process")
-
-    client = groq.Groq(api_key=settings.groq_api_key)
-    batch_size = max(1, settings.groq_batch_size)
-    all_results: list[dict[str, Any]] = []
-
-    logger.info(
-        "Simple Groq scheduler started: pages=%d batch_size=%d",
-        len(images),
-        batch_size,
+    """Process PIL images with adaptive Groq batching strategy."""
+    merged = _process_images_with_adaptive_strategy(
+        images,
+        _process_pil_batch_with_groq,
     )
-
-    for batch_num, start in enumerate(range(0, len(images), batch_size)):
-        batch_images = images[start : start + batch_size]
-        start_page = start + 1
-        end_page = start + len(batch_images)
-
-        logger.info(
-            "Groq request %d/%d: pages=%d-%d count=%d",
-            batch_num + 1,
-            -(-len(images) // batch_size),  # ceil division
-            start_page,
-            end_page,
-            len(batch_images),
-        )
-
-        try:
-            result = _process_pil_batch_with_groq(
-                client,
-                batch_images,
-                start_page,
-                batch_num,
-                settings.groq_image_max_side,
-            )
-            all_results.append(result)
-        except Exception as exc:
-            raise GroqConversionError(
-                f"Groq request failed for pages {start_page}-{end_page}: {exc}"
-            ) from exc
-
-    merged = _merge_batch_results(all_results)
-    logger.info(
-        "Simple Groq scheduler completed: requests=%d final_pages=%d",
-        len(all_results),
-        len(merged.get("pages", [])),
-    )
+    _validate_merged_pages(merged, expected_pages=len(images))
     return merged
 
 
@@ -326,6 +286,138 @@ def _process_images_with_adaptive_strategy(
     return merged
 
 
+def _batch_expected_pages(start_page: int, batch_size: int) -> list[int]:
+    return list(range(start_page, start_page + batch_size))
+
+
+def _build_transcription_prompt(expected_pages: list[int]) -> str:
+    page_numbers = ", ".join(str(page) for page in expected_pages)
+    return f"""You are a strict OCR transcription engine.
+
+Transcribe ALL visible text from each provided page.
+
+Return ONLY valid JSON with this schema:
+{{
+  "pages": [
+    {{"page_number": <int>, "text": "<full page text with \\n line breaks>"}}
+  ]
+}}
+
+Rules:
+1) Return exactly {len(expected_pages)} page objects.
+2) page_number values must be exactly: [{page_numbers}].
+3) Do not summarize, explain, translate, or omit text.
+4) Keep original language and line order from the page.
+5) Preserve line breaks inside "text".
+6) Do not return Markdown, code fences, or any extra keys outside JSON.
+"""
+
+
+def _decode_groq_json_response(raw_content: str) -> dict[str, Any]:
+    content = raw_content.strip()
+    if content.startswith("```"):
+        lines = content.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        content = "\n".join(lines).strip()
+
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise GroqConversionError(f"Groq returned invalid JSON: {exc}") from exc
+
+    if not isinstance(parsed, dict):
+        raise GroqConversionError("Groq returned JSON that is not an object")
+    return parsed
+
+
+def _safe_text(value: Any) -> str:
+    if isinstance(value, list):
+        return " ".join(str(item) for item in value if item is not None)
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _normalized_text_length(text: str) -> int:
+    return len("".join(text.split()))
+
+
+def _extract_page_text(page: dict[str, Any]) -> str:
+    direct_text = _safe_text(page.get("text", "")).strip()
+    if direct_text:
+        return direct_text
+
+    direct_content = _safe_text(page.get("content", "")).strip()
+    if direct_content:
+        return direct_content
+
+    sections = page.get("sections", [])
+    if not isinstance(sections, list):
+        return ""
+
+    parts: list[str] = []
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+
+        content_text = _safe_text(section.get("content", "")).strip()
+        if content_text:
+            parts.append(content_text)
+
+        table_data = section.get("table_data", {})
+        if isinstance(table_data, dict):
+            headers = table_data.get("headers", [])
+            rows = table_data.get("rows", [])
+            if isinstance(headers, list) and headers:
+                parts.append(" | ".join(_safe_text(header).strip() for header in headers))
+            if isinstance(rows, list):
+                for row in rows:
+                    if isinstance(row, list):
+                        row_text = " | ".join(_safe_text(cell).strip() for cell in row)
+                        if row_text.strip():
+                            parts.append(row_text)
+
+    return "\n".join(part for part in parts if part.strip())
+
+
+def _normalize_batch_result(result: dict[str, Any]) -> dict[str, Any]:
+    raw_pages = result.get("pages", [])
+    if not isinstance(raw_pages, list):
+        raise GroqConversionError("Groq JSON does not contain a valid 'pages' list")
+
+    normalized_pages: list[dict[str, Any]] = []
+    for raw_page in raw_pages:
+        if not isinstance(raw_page, dict):
+            continue
+
+        raw_page_number = raw_page.get("page_number")
+        try:
+            page_number = int(raw_page_number)
+        except (TypeError, ValueError) as exc:
+            raise GroqConversionError(
+                f"Groq batch output has invalid page number: {raw_page_number!r}"
+            ) from exc
+
+        page_text = _extract_page_text(raw_page)
+        normalized_page = dict(raw_page)
+        normalized_page["page_number"] = page_number
+        normalized_page["text"] = page_text
+        normalized_pages.append(normalized_page)
+
+    return {
+        "title": _safe_text(result.get("title", "")),
+        "pages": normalized_pages,
+    }
+
+
+def _batch_max_tokens(expected_pages: list[int]) -> int:
+    estimated_tokens = 4000 * len(expected_pages)
+    return min(settings.groq_max_tokens, max(2048, estimated_tokens))
+
+
 def _process_pil_batch_with_groq(
     client,
     pil_images: list[Image.Image],
@@ -357,50 +449,9 @@ def _process_pil_batch_with_groq(
             }
         })
     
-    # Use existing prompt from the main function
-    prompt = f"""Analyze these {len(pil_images)} pages (pages {start_page}-{start_page + len(pil_images) - 1}) and extract ALL content with EXACT formatting.
-
-    JSON format:
-    {{
-        "title": "document title (batch 1 only)",
-        "pages": [
-            {{
-                "page_number": {start_page},
-                "sections": [
-                    {{
-                        "type": "header_row|heading|paragraph|table|list",
-                        "content": "COMPLETE TEXT",
-                        "formatting": {{
-                            "bold": true/false,
-                            "color": "green|blue|red|black",
-                            "alignment": "left|center|right|justified",
-                            "font_size": "small|normal|large"
-                        }},
-                        "layout": {{
-                            "left_text": "text on left side",
-                            "right_text": "text on right side",
-                            "position": "header|body|footer"
-                        }},
-                        "table_data": {{
-                            "headers": ["col1", "col2", "col3"],
-                            "rows": [["cell1", "cell2", "cell3"]],
-                            "has_borders": true,
-                            "header_styling": true
-                        }}
-                    }}
-                ]
-            }}
-        ]
-    }}
-    
-    CRITICAL ANALYSIS:
-    - COLORS: Identify text colors (green BUYRUGI, etc.)
-    - BOLD: Mark all bold/emphasized text
-    - TABLES: Extract complete table structure with borders
-    - LAYOUT: Note date/number positioning (left vs right)
-    - NUMBERS: Highlight numeric formatting
-    - Extract EVERYTHING - no truncation
-    """
+    expected_pages = _batch_expected_pages(start_page, len(pil_images))
+    prompt = _build_transcription_prompt(expected_pages)
+    max_tokens = _batch_max_tokens(expected_pages)
 
     try:
         response = client.chat.completions.create(
@@ -415,78 +466,82 @@ def _process_pil_batch_with_groq(
                 }
             ],
             response_format={"type": "json_object"},
-            max_tokens=settings.groq_max_tokens,
-            temperature=0.1
+            max_tokens=max_tokens,
+            temperature=0.0,
         )
-        
-        content = response.choices[0].message.content
-        logger.info("Raw Groq response for batch %d: %s", batch_idx + 1, content[:500] + "...")
-        
-        import json
-        result = json.loads(content)
-        return result
-        
+
+        choice = response.choices[0]
+        if choice.finish_reason and choice.finish_reason != "stop":
+            raise GroqConversionError(
+                f"Groq response finished abnormally ({choice.finish_reason}) for pages {expected_pages}"
+            )
+
+        content = choice.message.content or ""
+        logger.info(
+            "Raw Groq response for batch %d pages=%s: %s",
+            batch_idx + 1,
+            expected_pages,
+            content[:500] + "...",
+        )
+
+        parsed = _decode_groq_json_response(content)
+        return _normalize_batch_result(parsed)
+
     except Exception as e:
         raise GroqConversionError(f"Groq API request failed: {e}") from e
 
 
 def _create_docx_bytes_from_content(content: dict[str, Any]) -> bytes:
-    """Create DOCX document from structured content and return as bytes."""
+    """Create DOCX bytes from Groq transcription content."""
     import io
-    
-    # Create document in memory  
+
     doc = Document()
-    
-    # Use existing _create_docx_from_content logic but write to BytesIO
-    def safe_text(value: Any) -> str:
-        if isinstance(value, list):
-            return ' '.join(str(item) for item in value if item)
-        return str(value) if value else ""
-    
-    # Title comes from page sections — no separate heading to avoid duplication
-    pages = content.get("pages", [])
-    logger.info("Processing %d pages for DOCX creation", len(pages))
-    
-    for page_idx, page in enumerate(pages):
-        page_num = page.get("page_number", page_idx + 1)
-        sections = page.get("sections", [])
-        logger.info("Page %d: processing %d sections", page_num, len(sections))
-        
-        for section_idx, section in enumerate(sections):
-            section_type = section.get("type", "paragraph")
-            text_content = safe_text(section.get("content", "")).strip()
-            formatting = section.get("formatting", {})
-            layout = section.get("layout", {})
-            table_data = section.get("table_data", {})
-            
-            if not text_content and not table_data:
-                if section_type == "table":
-                    logger.warning("Skipping table section with empty table_data on page %d (section %d)", page_num, section_idx)
-                else:
-                    logger.debug("Skipping empty section %d on page %d", section_idx, page_num)
-                continue
-            
-            logger.debug("Adding %s: %s", section_type, text_content[:100])
-            
-            # Handle different section types using existing functions
-            if section_type == "header_row":
-                _add_header_row(doc, layout, formatting, text_content)
-            elif section_type == "heading":
-                _add_formatted_heading(doc, text_content, formatting)
-            elif section_type == "table" and table_data:
-                _add_formatted_table(doc, table_data, text_content)
-            elif section_type == "list":
-                _add_formatted_list(doc, text_content, formatting)
-            else:  # paragraph
-                _add_formatted_paragraph(doc, text_content, formatting)
-    
-    # Save document to bytes
+    _write_transcription_pages_to_doc(doc, content)
+
     docx_buffer = io.BytesIO()
     doc.save(docx_buffer)
     docx_bytes = docx_buffer.getvalue()
-    
+
     logger.info("DOCX document created in memory: %d bytes", len(docx_bytes))
     return docx_bytes
+
+
+def _write_transcription_pages_to_doc(doc, content: dict[str, Any]) -> None:
+    pages = content.get("pages", [])
+    if not isinstance(pages, list):
+        raise GroqConversionError("Groq content has invalid pages structure")
+
+    logger.info("Writing %d page(s) to DOCX", len(pages))
+    for index, page in enumerate(pages):
+        if not isinstance(page, dict):
+            continue
+        page_number = page.get("page_number", index + 1)
+        page_text = _extract_page_text(page)
+        logger.info(
+            "Page %s: transcription chars=%d",
+            page_number,
+            _normalized_text_length(page_text),
+        )
+
+        _append_page_text(doc, page_text)
+        if index < len(pages) - 1:
+            doc.add_page_break()
+
+
+def _append_page_text(doc, page_text: str) -> None:
+    normalized_text = page_text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = normalized_text.split("\n")
+
+    wrote_any = False
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+        doc.add_paragraph(line)
+        wrote_any = True
+
+    if not wrote_any:
+        doc.add_paragraph(" ")
 
 
 def _pdf_to_images(pdf_path: Path, output_dir: Path) -> list[Path]:
@@ -554,60 +609,9 @@ def _process_batch_with_groq(
             }
         })
 
-    # Advanced prompt for formatting and structure recognition with enhanced color detection
-    prompt = f"""Analyze these {len(image_paths)} pages (pages {start_page}-{start_page + len(image_paths) - 1}) and extract ALL content with EXACT formatting and colors.
-
-    JSON format:
-    {{
-        "title": "document title (batch 1 only)",
-        "pages": [
-            {{
-                "page_number": {start_page},
-                "sections": [
-                    {{
-                        "type": "header_row|heading|paragraph|table|list",
-                        "content": "COMPLETE TEXT",
-                        "formatting": {{
-                            "bold": true/false,
-                            "color": "green|blue|red|black|dark_blue|orange",
-                            "alignment": "left|center|right|justified",
-                            "font_size": "small|normal|large"
-                        }},
-                        "layout": {{
-                            "left_text": "text on left side",
-                            "right_text": "text on right side",
-                            "position": "header|body|footer"
-                        }},
-                        "table_data": {{
-                            "headers": ["col1", "col2", "col3"],
-                            "rows": [["cell1", "cell2", "cell3"]],
-                            "has_borders": true,
-                            "header_styling": true,
-                            "column_types": ["number", "text", "number", "number", "number"]
-                        }}
-                    }}
-                ]
-            }}
-        ]
-    }}
-    
-    CRITICAL COLOR ANALYSIS:
-    - LOOK FOR ANY COLORED TEXT
-    - BOLD TEXT: Mark all emphasized/bold text accurately  
-    - TABLE STRUCTURE: Extract complete table with proper headers and data
-    - COLUMN ANALYSIS: Identify column types (number/text) for width optimization
-    - LAYOUT POSITIONING: Note left/right text alignment (dates vs numbers)
-    - NUMBERS: Highlight all numeric content formatting
-    
-    SPECIFIC EXAMPLES TO LOOK FOR:
-    - "BUYRUGI" text in GREEN color (this is very important!)
-    - Date numbers (20, 25, 18, 387) should be marked as bold
-    - Table columns: № (narrow numbers), Nomi (wide text), Soni/Narxi/Jami (medium numbers)
-    - Any text that appears in colors other than black
-    
-    
-    Extract EVERYTHING - no truncation allowed!
-    """
+    expected_pages = _batch_expected_pages(start_page, len(image_paths))
+    prompt = _build_transcription_prompt(expected_pages)
+    max_tokens = _batch_max_tokens(expected_pages)
 
     try:
         response = client.chat.completions.create(
@@ -622,21 +626,34 @@ def _process_batch_with_groq(
                 }
             ],
             response_format={"type": "json_object"},
-            max_tokens=settings.groq_max_tokens,
-            temperature=0.1
+            max_tokens=max_tokens,
+            temperature=0.0,
         )
-        
-        content = response.choices[0].message.content
-        logger.info("Raw Groq response for batch %d: %s", batch_idx + 1, content[:2000] + "...")
-        
-        import json
-        result = json.loads(content)
-        pages = result.get('pages', [])
-        logger.info("Parsed JSON structure: title=%s, pages_count=%d, page_numbers=%s", 
-                   type(result.get('title')), len(pages), 
-                   [p.get('page_number') for p in pages])
-        return result
-        
+
+        choice = response.choices[0]
+        if choice.finish_reason and choice.finish_reason != "stop":
+            raise GroqConversionError(
+                f"Groq response finished abnormally ({choice.finish_reason}) for pages {expected_pages}"
+            )
+
+        content = choice.message.content or ""
+        logger.info(
+            "Raw Groq response for batch %d pages=%s: %s",
+            batch_idx + 1,
+            expected_pages,
+            content[:2000] + "...",
+        )
+
+        parsed = _decode_groq_json_response(content)
+        normalized = _normalize_batch_result(parsed)
+        pages = normalized.get("pages", [])
+        logger.info(
+            "Parsed Groq JSON: pages_count=%d page_numbers=%s",
+            len(pages),
+            [p.get("page_number") for p in pages],
+        )
+        return normalized
+
     except Exception as e:
         raise GroqConversionError(f"Groq API request failed: {e}") from e
 
@@ -735,6 +752,17 @@ def _validate_batch_pages(batch_result: dict[str, Any], expected_pages: list[int
             f"(expected={sorted(expected_set)}, actual={sorted(actual_set)}, missing={missing}, extra={extra})"
         )
 
+    total_chars = sum(_normalized_text_length(_extract_page_text(page)) for page in pages)
+    minimum_expected_chars = max(
+        _DEFAULT_MIN_TEXT_CHARS_PER_PAGE,
+        len(expected_pages) * _DEFAULT_MIN_TEXT_CHARS_PER_PAGE,
+    )
+    if total_chars < minimum_expected_chars:
+        raise GroqConversionError(
+            "Groq batch output is suspiciously short "
+            f"(chars={total_chars}, min_expected={minimum_expected_chars}, pages={expected_pages})"
+        )
+
 
 def _merge_batch_results(batch_results: list[dict[str, Any]]) -> dict[str, Any]:
     """Merge results from multiple batches into single document structure."""
@@ -742,22 +770,44 @@ def _merge_batch_results(batch_results: list[dict[str, Any]]) -> dict[str, Any]:
     if not batch_results:
         raise GroqConversionError("No batch results to merge")
     
-    # Use title from first batch
-    merged = {
-        "title": batch_results[0].get("title", ""),
-        "pages": []
-    }
-    
-    # Combine all pages from all batches
+    merged_title = _safe_text(batch_results[0].get("title", ""))
+    best_pages: dict[int, dict[str, Any]] = {}
+
     for batch_result in batch_results:
         pages = batch_result.get("pages", [])
-        merged["pages"].extend(pages)
-    
-    # Sort pages by page number to ensure correct order
-    merged["pages"].sort(key=lambda p: p.get("page_number", 0))
-    
-    logger.info("Merged %d batches into %d total pages", len(batch_results), len(merged["pages"]))
-    return merged
+        if not isinstance(pages, list):
+            continue
+
+        for page in pages:
+            if not isinstance(page, dict):
+                continue
+            raw_page_number = page.get("page_number")
+            try:
+                page_number = int(raw_page_number)
+            except (TypeError, ValueError):
+                continue
+
+            candidate = dict(page)
+            candidate["page_number"] = page_number
+            candidate["text"] = _extract_page_text(candidate)
+
+            existing = best_pages.get(page_number)
+            if existing is None:
+                best_pages[page_number] = candidate
+                continue
+
+            if _normalized_text_length(candidate["text"]) > _normalized_text_length(
+                _extract_page_text(existing)
+            ):
+                best_pages[page_number] = candidate
+
+    merged_pages = [best_pages[number] for number in sorted(best_pages)]
+    logger.info(
+        "Merged %d batches into %d unique pages",
+        len(batch_results),
+        len(merged_pages),
+    )
+    return {"title": merged_title, "pages": merged_pages}
 
 
 def _validate_merged_pages(content: dict[str, Any], expected_pages: int) -> None:
@@ -795,56 +845,23 @@ def _validate_merged_pages(content: dict[str, Any], expected_pages: int) -> None
             f"Groq output incomplete (missing pages: {missing}, extra pages: {extra})"
         )
 
+    total_chars = sum(_normalized_text_length(_extract_page_text(page)) for page in pages)
+    minimum_expected_chars = max(
+        _DEFAULT_MIN_TEXT_CHARS_PER_PAGE,
+        expected_pages * _DEFAULT_MIN_TEXT_CHARS_PER_PAGE,
+    )
+    if total_chars < minimum_expected_chars:
+        raise GroqConversionError(
+            "Groq merged output is suspiciously short "
+            f"(chars={total_chars}, min_expected={minimum_expected_chars})"
+        )
+
 
 def _create_docx_from_content(content: dict[str, Any], output_path: Path) -> None:
-    """Create DOCX document from structured content with advanced formatting."""
-    
-    def safe_text(value: Any) -> str:
-        """Safely convert any value to string, handling lists."""
-        if isinstance(value, list):
-            return ' '.join(str(item) for item in value if item)
-        return str(value) if value else ""
-    
-    doc = Document()
+    """Create DOCX document from Groq transcription content."""
 
-    # Title comes from page sections — no separate heading to avoid duplication
-    pages = content.get("pages", [])
-    logger.info("Processing %d pages for DOCX creation", len(pages))
-    
-    for page_idx, page in enumerate(pages):
-        page_num = page.get("page_number", page_idx + 1)
-        sections = page.get("sections", [])
-        logger.info("Page %d: processing %d sections", page_num, len(sections))
-        
-        for section_idx, section in enumerate(sections):
-            section_type = section.get("type", "paragraph")
-            text_content = safe_text(section.get("content", "")).strip()
-            formatting = section.get("formatting", {})
-            layout = section.get("layout", {})
-            table_data = section.get("table_data", {})
-            
-            if not text_content and not table_data:
-                if section_type == "table":
-                    logger.warning("Skipping table section with empty table_data on page %d (section %d)", page_num, section_idx)
-                else:
-                    logger.debug("Skipping empty section %d on page %d", section_idx, page_num)
-                continue
-            
-            logger.debug("Adding %s: %s", section_type, text_content[:100])
-            
-            # Handle different section types
-            if section_type == "header_row":
-                _add_header_row(doc, layout, formatting, text_content)
-            elif section_type == "heading":
-                _add_formatted_heading(doc, text_content, formatting)
-            elif section_type == "table" and table_data:
-                _add_formatted_table(doc, table_data, text_content)
-            elif section_type == "list":
-                _add_formatted_list(doc, text_content, formatting)
-            else:  # paragraph
-                _add_formatted_paragraph(doc, text_content, formatting)
-    
-    # Save document
+    doc = Document()
+    _write_transcription_pages_to_doc(doc, content)
     doc.save(output_path)
     logger.info("DOCX document saved to %s", output_path)
 

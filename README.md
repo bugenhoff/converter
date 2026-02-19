@@ -24,8 +24,8 @@
    GROQ_API_KEY=your_groq_api_key_here
    GROQ_MODEL=llama-3.2-11b-vision-preview
    PDF_CONVERSION_MODE=groq_only
-   GROQ_MAX_TOKENS=8000
-   GROQ_BATCH_SIZE=3
+   GROQ_MAX_TOKENS=12000
+   GROQ_BATCH_SIZE=1
    GROQ_MAX_REQUESTS_PER_DOCUMENT=0
    GROQ_MIN_BATCH_SIZE=1
    GROQ_IMAGE_MAX_SIDE=800
@@ -87,4 +87,4 @@ pytest
 - **PDF режим**: управляется переменной `PDF_CONVERSION_MODE` (`groq_only | groq_first | reliability_first`).
 - OCR использует Tesseract. Настройте `TESSDATA_PREFIX` и `OCR_LANGUAGES`, чтобы перечислить доступные языки (по умолчанию `rus+eng+uzb+uzb_cyrl`).
 - **Транслитерация**: по кнопке `Транслитерация` создается новый `<name>_cyrillic.docx`. Обработка выполняется для текстовых слоев DOCX (paragraph/table/header/footer).
-- **Groq limits**: `GROQ_MAX_TOKENS` ограничивает размер ответа; нагрузка на вход регулируется `GROQ_BATCH_SIZE`, `GROQ_IMAGE_MAX_SIDE`, `GROQ_PDF_IMAGE_DPI` и адаптивными параметрами (`GROQ_MIN_BATCH_SIZE`, `GROQ_MIN_IMAGE_MAX_SIDE`, `GROQ_IMAGE_SIDE_REDUCTION_FACTOR`, `GROQ_RETRY_PER_TASK`, `GROQ_MAX_REQUESTS_PER_DOCUMENT`).
+- **Groq limits**: `GROQ_MAX_TOKENS` ограничивает размер ответа; для максимальной полноты распознавания текста рекомендуется `GROQ_BATCH_SIZE=1`. Нагрузка на вход регулируется `GROQ_IMAGE_MAX_SIDE`, `GROQ_PDF_IMAGE_DPI` и адаптивными параметрами (`GROQ_MIN_BATCH_SIZE`, `GROQ_MIN_IMAGE_MAX_SIDE`, `GROQ_IMAGE_SIDE_REDUCTION_FACTOR`, `GROQ_RETRY_PER_TASK`, `GROQ_MAX_REQUESTS_PER_DOCUMENT`).

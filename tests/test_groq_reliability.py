@@ -14,6 +14,41 @@ def test_validate_merged_pages_rejects_missing_pages():
         groq_converter._validate_merged_pages(content, expected_pages=3)
 
 
+def test_normalize_batch_result_extracts_text_from_sections():
+    normalized = groq_converter._normalize_batch_result(
+        {
+            "pages": [
+                {
+                    "page_number": "1",
+                    "sections": [
+                        {"content": "Header line"},
+                        {
+                            "table_data": {
+                                "headers": ["Col1", "Col2"],
+                                "rows": [["A", "B"]],
+                            }
+                        },
+                    ],
+                }
+            ]
+        }
+    )
+
+    page = normalized["pages"][0]
+    assert page["page_number"] == 1
+    assert "Header line" in page["text"]
+    assert "Col1 | Col2" in page["text"]
+    assert "A | B" in page["text"]
+
+
+def test_validate_batch_pages_rejects_suspiciously_short_text():
+    with pytest.raises(GroqConversionError, match="suspiciously short"):
+        groq_converter._validate_batch_pages(
+            {"pages": [{"page_number": 1, "text": "too short"}]},
+            expected_pages=[1],
+        )
+
+
 def test_process_pil_images_with_groq_fails_on_partial_batches(monkeypatch):
     class DummyGroqClient:
         pass
@@ -41,7 +76,10 @@ def test_process_pil_images_with_groq_fails_on_partial_batches(monkeypatch):
         return {
             "title": "ok",
             "pages": [
-                {"page_number": page_number, "sections": []}
+                {
+                    "page_number": page_number,
+                    "text": f"Page {page_number} full transcription " * 4,
+                }
                 for page_number in range(start_page, start_page + len(pil_images))
             ],
         }
@@ -80,7 +118,7 @@ def test_process_pil_images_with_groq_uses_configurable_batch_size(monkeypatch):
             "pages": [
                 {
                     "page_number": page_number,
-                    "sections": [],
+                    "text": f"Page {page_number} full transcription " * 4,
                 }
                 for page_number in range(start_page, start_page + len(pil_images))
             ],
@@ -120,7 +158,10 @@ def test_process_pil_images_with_groq_downscales_until_min_side(monkeypatch):
         seen_sides.append(image_max_side)
         if image_max_side > 500:
             raise RuntimeError("context overflow")
-        return {"title": "ok", "pages": [{"page_number": start_page, "sections": []}]}
+        return {
+            "title": "ok",
+            "pages": [{"page_number": start_page, "text": "Single page transcription " * 4}],
+        }
 
     monkeypatch.setattr(groq_converter, "_process_pil_batch_with_groq", fake_process_batch)
 
