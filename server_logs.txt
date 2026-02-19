@@ -1,101 +1,226 @@
-Feb 19 11:12:27 Bugenhoff systemd[1]: converter.service: Consumed 5min 53.089s CPU time, 386.5M memory peak, 86.7M memo>
-Feb 19 11:12:27 Bugenhoff systemd[1]: Started converter.service - Document Converter.
-Feb 19 11:12:28 Bugenhoff python[2664816]: [INFO] Application started
-Feb 19 11:12:39 Bugenhoff python[2664816]: [INFO] User 575927473 (@Bugenhoff) performed action: upload_file: 388-son bu>
-Feb 19 11:12:40 Bugenhoff python[2664816]: [INFO] Loaded file 388-son buyruq.pdf (8585916 bytes) for user 575927473 ent>
-Feb 19 11:12:40 Bugenhoff python[2664816]: [INFO] Started 10s timer for user 575927473 (queue=1)
-Feb 19 11:12:50 Bugenhoff python[2664816]: [INFO] Batch window elapsed for user 575927473 (waited 10.00s)
-Feb 19 11:12:50 Bugenhoff python[2664816]: [INFO] Processing 1 file(s) for user 575927473
-Feb 19 11:12:50 Bugenhoff python[2664816]: [INFO] Starting processing loop for 1 files
-Feb 19 11:12:50 Bugenhoff python[2664816]: [INFO] Processing file 1/1: 388-son buyruq.pdf
-Feb 19 11:12:50 Bugenhoff python[2664816]: [INFO] Progress notification sent for 388-son buyruq.pdf
-Feb 19 11:12:50 Bugenhoff python[2664816]: [INFO] Starting conversion for 388-son buyruq.pdf (pdf, 8585916 bytes)
-Feb 19 11:12:50 Bugenhoff python[2664816]: [INFO] Converting PDF bytes to DOCX in memory: 388-son buyruq.pdf (8585916 b>
-Feb 19 11:13:04 Bugenhoff python[2664816]: [INFO] Extracted 15 page images from memory, sending to Groq LLM
-Feb 19 11:13:04 Bugenhoff python[2664816]: [INFO] Processing 15 images in 5 batches
-Feb 19 11:13:04 Bugenhoff python[2664816]: [INFO] Processing batch 1/5 with 3 images
-Feb 19 11:13:11 Bugenhoff python[2664816]: [INFO] Raw Groq response for batch 1: {
-Feb 19 11:13:11 Bugenhoff python[2664816]: "title": "O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDAGI IJTIMOIY HIMOYA MIL>
-Feb 19 11:13:11 Bugenhoff python[2664816]:     "pages": [
-Feb 19 11:13:11 Bugenhoff python[2664816]:         {
-Feb 19 11:13:11 Bugenhoff python[2664816]:             "page_number": 1,
-Feb 19 11:13:11 Bugenhoff python[2664816]:             "sections": [
-Feb 19 11:13:11 Bugenhoff python[2664816]:                 {
-Feb 19 11:13:11 Bugenhoff python[2664816]:                     "type": "header_row",
-Feb 19 11:13:11 Bugenhoff python[2664816]:                     "content": "O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDA>
-Feb 19 11:13:11 Bugenhoff python[2664816]:                     "formatting": {
-Feb 19 11:13:11 Bugenhoff python[2664816]:                         "bold": false,
-Feb 19 11:13:11 Bugenhoff python[2664816]:                         "color...
-Feb 19 11:13:11 Bugenhoff python[2664816]: [INFO] Processing batch 2/5 with 3 images
-Feb 19 11:13:17 Bugenhoff python[2664816]: [INFO] Raw Groq response for batch 2: {
-Feb 19 11:13:17 Bugenhoff python[2664816]: "title": "Malaka Talablari",
-Feb 19 11:13:17 Bugenhoff python[2664816]:     "pages": [
-Feb 19 11:13:17 Bugenhoff python[2664816]:         {
-Feb 19 11:13:17 Bugenhoff python[2664816]:             "page_number": 4,
-Feb 19 11:13:17 Bugenhoff python[2664816]:             "sections": [
-Feb 19 11:13:17 Bugenhoff python[2664816]:                 {
-Feb 19 11:13:17 Bugenhoff python[2664816]:                     "type": "paragraph",
-Feb 19 11:13:17 Bugenhoff python[2664816]:                     "content": "8. Ijro nazorati bo'limi (J. Eshboyev) ushbu>
-Feb 19 11:13:17 Bugenhoff python[2664816]: [INFO] Processing batch 3/5 with 3 images
-Feb 19 11:13:25 Bugenhoff python[2664816]: [INFO] Raw Groq response for batch 3: {
-Feb 19 11:13:25 Bugenhoff python[2664816]: "title": "LAVOZIM MAJBURIYATLARI",
-Feb 19 11:13:25 Bugenhoff python[2664816]:     "pages": [
-Feb 19 11:13:25 Bugenhoff python[2664816]:         {
-Feb 19 11:13:25 Bugenhoff python[2664816]:             "page_number": 7,
-Feb 19 11:13:25 Bugenhoff python[2664816]:             "sections": [
-Feb 19 11:13:25 Bugenhoff python[2664816]:                 {
-Feb 19 11:13:25 Bugenhoff python[2664816]:                     "type": "table",
-Feb 19 11:13:25 Bugenhoff python[2664816]:                     "content": "\nTalablar nomi\tLavozim nomi va unga qo'yil>
-Feb 19 11:13:25 Bugenhoff python[2664816]:                     "formatting": {
-Feb 19 11:13:25 Bugenhoff python[2664816]:                         "bold": false,
-Feb 19 11:13:25 Bugenhoff python[2664816]:                         "color": "black",
-Feb 19 11:13:25 Bugenhoff python[2664816]:                         "alignment": "left",
-Feb 19 11:13:25 Bugenhoff python[2664816]:                         "font_size": "normal"
-Feb 19 11:13:25 Bugenhoff python[2664816]:                   ...
-Feb 19 11:13:25 Bugenhoff python[2664816]: [INFO] Processing batch 4/5 with 3 images
-Feb 19 11:13:32 Bugenhoff python[2664816]: [INFO] Raw Groq response for batch 4: {
-Feb 19 11:13:32 Bugenhoff python[2664816]: "title": "document title (batch 1 only)",
-Feb 19 11:13:32 Bugenhoff python[2664816]:     "pages": [
-Feb 19 11:13:32 Bugenhoff python[2664816]:         {
-Feb 19 11:13:32 Bugenhoff python[2664816]:             "page_number": 10,
-Feb 19 11:13:32 Bugenhoff python[2664816]:             "sections": [
-Feb 19 11:13:32 Bugenhoff python[2664816]:                 {
-Feb 19 11:13:32 Bugenhoff python[2664816]:                     "type": "paragraph",
-Feb 19 11:13:32 Bugenhoff python[2664816]:                     "content": "bolalar uchun qisqa va uzoq muddatli rivojla>
-Feb 19 11:13:32 Bugenhoff python[2664816]: [INFO] Processing batch 5/5 with 3 images
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Raw Groq response for batch 5: {
-Feb 19 11:13:40 Bugenhoff python[2664816]: "title": "Tarbiatchining lavozim majburiyatlari",
-Feb 19 11:13:40 Bugenhoff python[2664816]:     "pages": [
-Feb 19 11:13:40 Bugenhoff python[2664816]:         {
-Feb 19 11:13:40 Bugenhoff python[2664816]:             "page_number": 13,
-Feb 19 11:13:40 Bugenhoff python[2664816]:             "sections": [
-Feb 19 11:13:40 Bugenhoff python[2664816]:                 {
-Feb 19 11:13:40 Bugenhoff python[2664816]:                     "type": "paragraph",
-Feb 19 11:13:40 Bugenhoff python[2664816]:                     "content": "amaldagi qonunchilik hujjatlariga muvofiq o'>
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Merged 5 batches into 15 total pages
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Added document title: O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDAGI >
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Processing 15 pages for DOCX creation
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 1: processing 11 sections
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 2: processing 2 sections
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 3: processing 2 sections
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 4: processing 4 sections
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 5: processing 1 sections
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 6: processing 1 sections
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 7: processing 13 sections
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 8: processing 4 sections
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 9: processing 7 sections
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 10: processing 5 sections
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 11: processing 4 sections
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 12: processing 4 sections
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 13: processing 4 sections
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 14: processing 6 sections
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 15: processing 3 sections
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] DOCX document created in memory: 42884 bytes
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Memory-based LLM conversion completed for 388-son buyruq.pdf: 42884 b>
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Conversion finished for 388-son buyruq.pdf, result: 42884 bytes
-Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Converted 388-son buyruq.pdf (42884 bytes) for user 575927473
-Feb 19 11:13:41 Bugenhoff python[2664816]: [INFO] Successfully sent 1/1 files to user 575927473
-Feb 19 11:13:41 Bugenhoff python[2664816]: [INFO] Memory stats - Current: 0 MB, Peak: 8 MB, Files in memory: 0, Disk fa>
-Feb 19 11:14:34 Bugenhoff python[2664816]: [INFO] User 575927473 (@Bugenhoff) performed action: transliteration_request>
-Feb 19 11:14:52 Bugenhoff python[2664816]: [INFO] User 575927473 (@Bugenhoff) performed action: upload_file: 388-son bu>
-lines 75-100/100 (END)
+root@Bugenhoff:~/converter# journalctl -u converter -f
+Feb 19 11:33:56 Bugenhoff python[2668430]: [INFO] Successfully sent 1/1 files to user 575927473
+Feb 19 11:33:56 Bugenhoff python[2668430]: [INFO] Memory stats - Current: 0 MB, Peak: 8 MB, Files in memory: 0, Disk fallbacks: 0
+Feb 19 12:14:45 Bugenhoff systemd[1]: Stopping converter.service - Document Converter...
+Feb 19 12:14:48 Bugenhoff python[2668430]: [INFO] Application is stopping. This might take a moment.
+Feb 19 12:14:48 Bugenhoff python[2668430]: [INFO] Application.stop() complete
+Feb 19 12:14:48 Bugenhoff systemd[1]: converter.service: Deactivated successfully.
+Feb 19 12:14:48 Bugenhoff systemd[1]: Stopped converter.service - Document Converter.
+Feb 19 12:14:48 Bugenhoff systemd[1]: converter.service: Consumed 10.810s CPU time.
+Feb 19 12:14:48 Bugenhoff systemd[1]: Started converter.service - Document Converter.
+Feb 19 12:14:50 Bugenhoff python[2676197]: [INFO] Application started
+Feb 19 12:15:25 Bugenhoff python[2676197]: [INFO] User 575927473 (@Bugenhoff) performed action: upload_file: 388-son buyruq.pdf
+Feb 19 12:15:26 Bugenhoff python[2676197]: [INFO] Loaded file 388-son buyruq.pdf (8585916 bytes) for user 575927473 entirely in memory
+Feb 19 12:15:26 Bugenhoff python[2676197]: [INFO] Started 10s timer for user 575927473 (queue=1)
+Feb 19 12:15:36 Bugenhoff python[2676197]: [INFO] Batch window elapsed for user 575927473 (waited 10.00s)
+Feb 19 12:15:36 Bugenhoff python[2676197]: [INFO] Processing 1 file(s) for user 575927473
+Feb 19 12:15:36 Bugenhoff python[2676197]: [INFO] Starting processing loop for 1 files
+Feb 19 12:15:36 Bugenhoff python[2676197]: [INFO] Processing file 1/1: 388-son buyruq.pdf
+Feb 19 12:15:36 Bugenhoff python[2676197]: [INFO] Progress notification sent for 388-son buyruq.pdf
+Feb 19 12:15:36 Bugenhoff python[2676197]: [INFO] Starting conversion for 388-son buyruq.pdf (pdf, 8585916 bytes)
+Feb 19 12:15:36 Bugenhoff python[2676197]: [INFO] PDF conversion mode=groq_only
+Feb 19 12:15:36 Bugenhoff python[2676197]: [INFO] Attempting PDF conversion via Groq LLM
+Feb 19 12:15:36 Bugenhoff python[2676197]: [INFO] Converting PDF to images for LLM processing: /tmp/tmp1uqt7p0d.pdf
+Feb 19 12:15:49 Bugenhoff python[2676197]: [INFO] Extracted 15 page images, sending to Groq LLM
+Feb 19 12:15:49 Bugenhoff python[2676197]: [INFO] Adaptive Groq scheduler started: pages=15 initial_batch=4 min_batch=1 max_side=800 min_side=480 max_requests=unlimited retries=2
+Feb 19 12:15:49 Bugenhoff python[2676197]: [INFO] Groq request 1/unlimited: pages=1-4 pages_in_task=4 image_max_side=800 max_tokens=8000
+Feb 19 12:15:53 Bugenhoff python[2676197]: [INFO] Raw Groq response for batch 1: {
+Feb 19 12:15:53 Bugenhoff python[2676197]: "title": "O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDAGI IJTIMOIY HIMOYA MILLIY AGENTLIGI DIREKTORINING BUYRUG'I",
+Feb 19 12:15:53 Bugenhoff python[2676197]:     "pages": [
+Feb 19 12:15:53 Bugenhoff python[2676197]:         {
+Feb 19 12:15:53 Bugenhoff python[2676197]:             "page_number": 1,
+Feb 19 12:15:53 Bugenhoff python[2676197]:             "sections": [
+Feb 19 12:15:53 Bugenhoff python[2676197]:                 {
+Feb 19 12:15:53 Bugenhoff python[2676197]:                     "type": "header_row",
+Feb 19 12:15:53 Bugenhoff python[2676197]:                     "content": "O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDAGI IJTIMOIY HIMOYA MILLIY AGENTLIGI DIREKTORINING BUYRUG'I",
+Feb 19 12:15:53 Bugenhoff python[2676197]:                     "formatting": {
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "bold": false,
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "color": "black",
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "alignment": "center",
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "font_size": "normal"
+Feb 19 12:15:53 Bugenhoff python[2676197]:                     },
+Feb 19 12:15:53 Bugenhoff python[2676197]:                     "layout": {
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "left_text": "",
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "right_text": "",
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "position": "header"
+Feb 19 12:15:53 Bugenhoff python[2676197]:                     }
+Feb 19 12:15:53 Bugenhoff python[2676197]:                 },
+Feb 19 12:15:53 Bugenhoff python[2676197]:                 {
+Feb 19 12:15:53 Bugenhoff python[2676197]:                     "type": "paragraph",
+Feb 19 12:15:53 Bugenhoff python[2676197]:                     "content": "20 – noyabr 2025– yil 388 son",
+Feb 19 12:15:53 Bugenhoff python[2676197]:                     "formatting": {
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "bold": false,
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "color": "black",
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "alignment": "right",
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "font_size": "normal"
+Feb 19 12:15:53 Bugenhoff python[2676197]:                     },
+Feb 19 12:15:53 Bugenhoff python[2676197]:                     "layout": {
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "left_text": "",
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "right_text": "",
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "position": "header"
+Feb 19 12:15:53 Bugenhoff python[2676197]:                     }
+Feb 19 12:15:53 Bugenhoff python[2676197]:                 },
+Feb 19 12:15:53 Bugenhoff python[2676197]:                 {
+Feb 19 12:15:53 Bugenhoff python[2676197]:                     "type": "paragraph",
+Feb 19 12:15:53 Bugenhoff python[2676197]:                     "content": "Alohida ta'lim ehtiyojlari bo'lgan bolalar uchun davlat ixtisoslashtirilgan maktab va maktab-internatlari pedagoglari asosiy lavozimlarining malaka tavsiflarini tasdiqlash to'g'risida",
+Feb 19 12:15:53 Bugenhoff python[2676197]:                     "formatting": {
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "bold": false,
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "color": "black",
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "alignment": "left",
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "font_size": "normal"
+Feb 19 12:15:53 Bugenhoff python[2676197]:                     },
+Feb 19 12:15:53 Bugenhoff python[2676197]:                     "layout": {
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "left_text": "",
+Feb 19 12:15:53 Bugenhoff python[2676197]:                         "right_tex...
+Feb 19 12:15:53 Bugenhoff python[2676197]: [INFO] Parsed JSON structure: title=<class 'str'>, pages_count=4, page_numbers=[1, 2, 3, 4]
+Feb 19 12:15:53 Bugenhoff python[2676197]: [INFO] Groq request 2/unlimited: pages=5-8 pages_in_task=4 image_max_side=800 max_tokens=8000
+Feb 19 12:15:58 Bugenhoff python[2676197]: [INFO] Raw Groq response for batch 2: {
+Feb 19 12:15:58 Bugenhoff python[2676197]: "title": "Alohida ta'lim ehtiyojlari bo'lgan bolalar uchun ixtisoslashtirilgan maktab va maktab-internatlari pedagoglari asosiy lavozimlarining MALAKA TALABLARI",
+Feb 19 12:15:58 Bugenhoff python[2676197]:     "pages": [
+Feb 19 12:15:58 Bugenhoff python[2676197]:         {
+Feb 19 12:15:58 Bugenhoff python[2676197]:             "page_number": 5,
+Feb 19 12:15:58 Bugenhoff python[2676197]:             "sections": [
+Feb 19 12:15:58 Bugenhoff python[2676197]:                 {
+Feb 19 12:15:58 Bugenhoff python[2676197]:                     "type": "header_row",
+Feb 19 12:15:58 Bugenhoff python[2676197]:                     "content": "Alohida ta'lim ehtiyojlari bo'lgan bolalar uchun ixtisoslashtirilgan maktab va maktab-internatlari pedagoglari asosiy lavozimlarining MALAKA TALABLARI",
+Feb 19 12:15:58 Bugenhoff python[2676197]:                     "formatting": {
+Feb 19 12:15:58 Bugenhoff python[2676197]:                         "bold": true,
+Feb 19 12:15:58 Bugenhoff python[2676197]:                         "color": "black",
+Feb 19 12:15:58 Bugenhoff python[2676197]:                         "alignment": "center",
+Feb 19 12:15:58 Bugenhoff python[2676197]:                         "font_size": "large"
+Feb 19 12:15:58 Bugenhoff python[2676197]:                     },
+Feb 19 12:15:58 Bugenhoff python[2676197]:                     "layout": {
+Feb 19 12:15:58 Bugenhoff python[2676197]:                         "left_text": "",
+Feb 19 12:15:58 Bugenhoff python[2676197]:                         "right_text": "",
+Feb 19 12:15:58 Bugenhoff python[2676197]:                         "position": "header"
+Feb 19 12:15:58 Bugenhoff python[2676197]:                     }
+Feb 19 12:15:58 Bugenhoff python[2676197]:                 },
+Feb 19 12:15:58 Bugenhoff python[2676197]:                 {
+Feb 19 12:15:58 Bugenhoff python[2676197]:                     "type": "table",
+Feb 19 12:15:58 Bugenhoff python[2676197]:                     "content": "",
+Feb 19 12:15:58 Bugenhoff python[2676197]:                     "formatting": {
+Feb 19 12:15:58 Bugenhoff python[2676197]:                         "bold": false,
+Feb 19 12:15:58 Bugenhoff python[2676197]:                         "color": "black",
+Feb 19 12:15:58 Bugenhoff python[2676197]:                         "alignment": "left",
+Feb 19 12:15:58 Bugenhoff python[2676197]:                         "font_size": "normal"
+Feb 19 12:15:58 Bugenhoff python[2676197]:                     },
+Feb 19 12:15:58 Bugenhoff python[2676197]:                     "layout": {
+Feb 19 12:15:58 Bugenhoff python[2676197]:                         "left_text": "",
+Feb 19 12:15:58 Bugenhoff python[2676197]:                         "right_text": "",
+Feb 19 12:15:58 Bugenhoff python[2676197]:                         "position": "body"
+Feb 19 12:15:58 Bugenhoff python[2676197]:                     },
+Feb 19 12:15:58 Bugenhoff python[2676197]:                     "table_data": {
+Feb 19 12:15:58 Bugenhoff python[2676197]:                         "headers": ["Talablar nomi", "Lavozim nomi va unga qo'yilgan malaka talablari"],
+Feb 19 12:15:58 Bugenhoff python[2676197]:                         "rows": [
+Feb 19 12:15:58 Bugenhoff python[2676197]:                             ["Ma'lumoti:", "Oliy pedagogik ma'lumotga ega bo'lishi (magistr, falsafa doktori (PhD), fan nomzodi, fan doktori (Dsc) ilmiy daraja yoki dotsent, professor ilmiy unvoniga ega shaxslarga mos ravishda ustuvorlik beriladi)."],
+Feb 19 12:15:58 Bugenhoff python[2676197]:                             ["Mutaxassislik:", "Fan yo'nalishiga to'g'ri keluvchi kamila bakalavr va darajasiydagi oliy pedagogik ma'lumot yoki fan ...
+Feb 19 12:15:58 Bugenhoff python[2676197]: [INFO] Parsed JSON structure: title=<class 'str'>, pages_count=4, page_numbers=[5, 6, 7, 8]
+Feb 19 12:15:58 Bugenhoff python[2676197]: [INFO] Groq request 3/unlimited: pages=9-12 pages_in_task=4 image_max_side=800 max_tokens=8000
+Feb 19 12:16:06 Bugenhoff python[2676197]: [INFO] Raw Groq response for batch 3: {
+Feb 19 12:16:06 Bugenhoff python[2676197]: "title": "LAVOZIM MAJBURIYATLARI",
+Feb 19 12:16:06 Bugenhoff python[2676197]:     "pages": [
+Feb 19 12:16:06 Bugenhoff python[2676197]:         {
+Feb 19 12:16:06 Bugenhoff python[2676197]:             "page_number": 9,
+Feb 19 12:16:06 Bugenhoff python[2676197]:             "sections": [
+Feb 19 12:16:06 Bugenhoff python[2676197]:                 {
+Feb 19 12:16:06 Bugenhoff python[2676197]:                     "type": "paragraph",
+Feb 19 12:16:06 Bugenhoff python[2676197]:                     "content": "Alohida ta’lim ehtiyojlari bo‘lgan bolalar uchun ixtisoslashtirilgan maktab va maktab-internatlari pedagoglarining namunaviy LAVOZIM MAJBURIYATLARI",
+Feb 19 12:16:06 Bugenhoff python[2676197]:                     "formatting": {
+Feb 19 12:16:06 Bugenhoff python[2676197]:                         "bold": false,
+Feb 19 12:16:06 Bugenhoff python[2676197]:                         "color": "black",
+Feb 19 12:16:06 Bugenhoff python[2676197]:                         "alignment": "left",
+Feb 19 12:16:06 Bugenhoff python[2676197]:                         "font_size": "normal"
+Feb 19 12:16:06 Bugenhoff python[2676197]:                     },
+Feb 19 12:16:06 Bugenhoff python[2676197]:                     "layout": {
+Feb 19 12:16:06 Bugenhoff python[2676197]:                         "left_text": "",
+Feb 19 12:16:06 Bugenhoff python[2676197]:                         "right_text": "",
+Feb 19 12:16:06 Bugenhoff python[2676197]:                         "position": "header"
+Feb 19 12:16:06 Bugenhoff python[2676197]:                     }
+Feb 19 12:16:06 Bugenhoff python[2676197]:                 },
+Feb 19 12:16:06 Bugenhoff python[2676197]:                 {
+Feb 19 12:16:06 Bugenhoff python[2676197]:                     "type": "header_row",
+Feb 19 12:16:06 Bugenhoff python[2676197]:                     "content": "I. Fan o‘qituvchisining lavozim majburiyatlari",
+Feb 19 12:16:06 Bugenhoff python[2676197]:                     "formatting": {
+Feb 19 12:16:06 Bugenhoff python[2676197]:                         "bold": true,
+Feb 19 12:16:06 Bugenhoff python[2676197]:                         "color": "black",
+Feb 19 12:16:06 Bugenhoff python[2676197]:                         "alignment": "left",
+Feb 19 12:16:06 Bugenhoff python[2676197]:                         "font_size": "normal"
+Feb 19 12:16:06 Bugenhoff python[2676197]:                     },
+Feb 19 12:16:06 Bugenhoff python[2676197]:                     "layout": {
+Feb 19 12:16:06 Bugenhoff python[2676197]:                         "left_text": "",
+Feb 19 12:16:06 Bugenhoff python[2676197]:                         "right_text": "",
+Feb 19 12:16:06 Bugenhoff python[2676197]:                         "position": "header"
+Feb 19 12:16:06 Bugenhoff python[2676197]:                     }
+Feb 19 12:16:06 Bugenhoff python[2676197]:                 },
+Feb 19 12:16:06 Bugenhoff python[2676197]:                 {
+Feb 19 12:16:06 Bugenhoff python[2676197]:                     "type": "paragraph",
+Feb 19 12:16:06 Bugenhoff python[2676197]:                     "content": "1. Ta’lim jarayonini tashkil etish\nDavlat ta’lim standarti, o‘quv reja va dasturlarga muvofiq fan bo‘yicha o‘quv, tarbiyaviy va korrektsion mashg‘ulotlarni rejalashtirish hamda tasdiqlangan jadval va taqvim-mavzu rejalaga muvofiq o‘tkazish;\nbolalarining psixofiziologik, kognitiv va individual rivojlanish xususiyatlarini hisobga olgan holda ta’lim mazmunini moslashtirish, individual ta’lim rejalarini ishlab chiqish;\nindividual ta’lim rejasi va individual rivojlanish xaritasini yuriting (psixolog bilan hamkorlikda), uning ijrosini muntazam...
+Feb 19 12:16:06 Bugenhoff python[2676197]: [INFO] Parsed JSON structure: title=<class 'str'>, pages_count=4, page_numbers=[9, 10, 11, 12]
+Feb 19 12:16:06 Bugenhoff python[2676197]: [INFO] Groq request 4/unlimited: pages=13-15 pages_in_task=3 image_max_side=800 max_tokens=8000
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Raw Groq response for batch 4: {
+Feb 19 12:16:14 Bugenhoff python[2676197]: "title": "Tarbiatchining lavozim majburiyatlari",
+Feb 19 12:16:14 Bugenhoff python[2676197]:     "pages": [
+Feb 19 12:16:14 Bugenhoff python[2676197]:         {
+Feb 19 12:16:14 Bugenhoff python[2676197]:             "page_number": 13,
+Feb 19 12:16:14 Bugenhoff python[2676197]:             "sections": [
+Feb 19 12:16:14 Bugenhoff python[2676197]:                 {
+Feb 19 12:16:14 Bugenhoff python[2676197]:                     "type": "paragraph",
+Feb 19 12:16:14 Bugenhoff python[2676197]:                     "content": "amaldagi qonunchilik hujjatlariga muvofiq o'z vaqtida tibbiy ko'rikdan o'tish; ta'lim muassasasi obro'si va sha'niga putur yetkazishi mumkin bo'lgan ma'lumotlarni tarqatmaslik, davlat sirini yaxshi maxfiy axborot bilan ishlashda qonunchilik talablariga amal qilish; bolalar hayoti va salomatligini muhofaza qilish, ular uchun xavfsiz muhit yaratish, tez tibbiy yordam va evakuatsiya yo'llari holatlarini harakat qilish tartibini bilish; ta'lim muassasasi ustavi, kasbiy odob-axloq qoidalari, mehnatning muhofaza qilish; qoidalari, mehnatni muhofaza qilish qoidalari, mehnatning muhofaza",
+Feb 19 12:16:14 Bugenhoff python[2676197]:                     "formatting": {
+Feb 19 12:16:14 Bugenhoff python[2676197]:                         "bold": false,
+Feb 19 12:16:14 Bugenhoff python[2676197]:                         "color": "black",
+Feb 19 12:16:14 Bugenhoff python[2676197]:                         "alignment": "left",
+Feb 19 12:16:14 Bugenhoff python[2676197]:                         "font_size": "normal"
+Feb 19 12:16:14 Bugenhoff python[2676197]:                     },
+Feb 19 12:16:14 Bugenhoff python[2676197]:                     "layout": {
+Feb 19 12:16:14 Bugenhoff python[2676197]:                         "left_text": "",
+Feb 19 12:16:14 Bugenhoff python[2676197]:                         "right_text": "",
+Feb 19 12:16:14 Bugenhoff python[2676197]:                         "position": "body"
+Feb 19 12:16:14 Bugenhoff python[2676197]:                     }
+Feb 19 12:16:14 Bugenhoff python[2676197]:                 },
+Feb 19 12:16:14 Bugenhoff python[2676197]:                 {
+Feb 19 12:16:14 Bugenhoff python[2676197]:                     "type": "header_row",
+Feb 19 12:16:14 Bugenhoff python[2676197]:                     "content": "II. Tarbiatchining lavozim majburiyatlari",
+Feb 19 12:16:14 Bugenhoff python[2676197]:                     "formatting": {
+Feb 19 12:16:14 Bugenhoff python[2676197]:                         "bold": true,
+Feb 19 12:16:14 Bugenhoff python[2676197]:                         "color": "black",
+Feb 19 12:16:14 Bugenhoff python[2676197]:                         "alignment": "left",
+Feb 19 12:16:14 Bugenhoff python[2676197]:                         "font_size": "large"
+Feb 19 12:16:14 Bugenhoff python[2676197]:                     },
+Feb 19 12:16:14 Bugenhoff python[2676197]:                     "layout": {
+Feb 19 12:16:14 Bugenhoff python[2676197]:                         "left_text": "",
+Feb 19 12:16:14 Bugenhoff python[2676197]:                         "right_text": "",
+Feb 19 12:16:14 Bugenhoff python[2676197]:                         "position": "body"
+Feb 19 12:16:14 Bugenhoff python[2676197]:                     }
+Feb 19 12:16:14 Bugenhoff python[2676197]:                 },
+Feb 19 12:16:14 Bugenhoff python[2676197]:                 {
+Feb 19 12:16:14 Bugenhoff python[2676197]:                     "type": "header_row",
+Feb 19 12:16:14 Bugenhoff python[2676197]:                     "content": "1. Ta'lim-tarbiya jarayonini tashkil etish:",
+Feb 19 12:16:14 Bugenhoff python[2676197]:                     "formatting": {
+Feb 19 12:16:14 Bugenhoff python[2676197]:                   ...
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Parsed JSON structure: title=<class 'str'>, pages_count=3, page_numbers=[13, 14, 15]
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Merged 4 batches into 15 total pages
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Adaptive Groq scheduler completed: requests_made=4 final_pages=15
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Added document title: O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDAGI IJT
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Processing 15 pages for DOCX creation
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Page 1: processing 7 sections
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Page 2: processing 1 sections
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Page 3: processing 1 sections
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Page 4: processing 1 sections
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Page 5: processing 2 sections
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Page 6: processing 1 sections
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Page 7: processing 2 sections
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Page 8: processing 1 sections
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Page 9: processing 5 sections
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Page 10: processing 4 sections
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Page 11: processing 4 sections
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Page 12: processing 4 sections
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Page 13: processing 4 sections
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Page 14: processing 6 sections
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Page 15: processing 3 sections
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] DOCX document saved to /tmp/tmppd7h0245/tmp1uqt7p0d.docx
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] LLM-based conversion completed: /tmp/tmppd7h0245/tmp1uqt7p0d.docx
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Conversion finished for 388-son buyruq.pdf, result: 41520 bytes
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Converted 388-son buyruq.pdf (41520 bytes) for user 575927473
+Feb 19 12:16:14 Bugenhoff python[2676197]: [INFO] Successfully sent 1/1 files to user 575927473
+Feb 19 12:16:15 Bugenhoff python[2676197]: [INFO] Memory stats - Current: 0 MB, Peak: 8 MB, Files in memory: 0, Disk fallbacks: 0

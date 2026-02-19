@@ -428,14 +428,17 @@ def _create_docx_bytes_from_content(content: dict[str, Any]) -> bytes:
             table_data = section.get("table_data", {})
             
             if not text_content and not table_data:
-                logger.debug("Skipping empty section %d on page %d", section_idx, page_num)
+                if section_type == "table":
+                    logger.warning("Skipping table section with empty table_data on page %d (section %d)", page_num, section_idx)
+                else:
+                    logger.debug("Skipping empty section %d on page %d", section_idx, page_num)
                 continue
             
             logger.debug("Adding %s: %s", section_type, text_content[:100])
             
             # Handle different section types using existing functions
             if section_type == "header_row":
-                _add_header_row(doc, layout, formatting)
+                _add_header_row(doc, layout, formatting, text_content)
             elif section_type == "heading":
                 _add_formatted_heading(doc, text_content, formatting)
             elif section_type == "table" and table_data:
@@ -798,14 +801,17 @@ def _create_docx_from_content(content: dict[str, Any], output_path: Path) -> Non
             table_data = section.get("table_data", {})
             
             if not text_content and not table_data:
-                logger.debug("Skipping empty section %d on page %d", section_idx, page_num)
+                if section_type == "table":
+                    logger.warning("Skipping table section with empty table_data on page %d (section %d)", page_num, section_idx)
+                else:
+                    logger.debug("Skipping empty section %d on page %d", section_idx, page_num)
                 continue
             
             logger.debug("Adding %s: %s", section_type, text_content[:100])
             
             # Handle different section types
             if section_type == "header_row":
-                _add_header_row(doc, layout, formatting)
+                _add_header_row(doc, layout, formatting, text_content)
             elif section_type == "heading":
                 _add_formatted_heading(doc, text_content, formatting)
             elif section_type == "table" and table_data:
@@ -820,12 +826,24 @@ def _create_docx_from_content(content: dict[str, Any], output_path: Path) -> Non
     logger.info("DOCX document saved to %s", output_path)
 
 
-def _add_header_row(doc, layout: dict, formatting: dict) -> None:
-    """Add header row with left and right aligned text."""
+def _add_header_row(doc, layout: dict, formatting: dict, content: str = "") -> None:
+    """Add header row with left and right aligned text.
+    
+    If layout.left_text and layout.right_text are both empty (common when Groq
+    fills only the 'content' field), falls back to rendering 'content' as a
+    heading paragraph so nothing is silently dropped.
+    """
     left_text = layout.get("left_text", "")
     right_text = layout.get("right_text", "")
     
     if not left_text and not right_text:
+        # Fallback: render the section content as a heading
+        if content:
+            font_size = formatting.get("font_size", "normal")
+            level = 1 if font_size == "large" else 2
+            para = doc.add_heading(content, level=level)
+            _apply_paragraph_alignment(para, formatting)
+            logger.debug("_add_header_row: rendered content as heading level=%d: %s", level, content[:80])
         return
         
     para = doc.add_paragraph()
@@ -861,13 +879,20 @@ def _add_formatted_heading(doc, text: str, formatting: dict) -> None:
 
 
 def _add_formatted_paragraph(doc, text: str, formatting: dict) -> None:
-    """Add paragraph with formatting."""
-    para = doc.add_paragraph()
+    """Add paragraph with formatting.
     
-    # Highlight numbers in text
-    _add_text_with_number_highlighting(para, text, formatting)
-    
-    _apply_paragraph_alignment(para, formatting)
+    Splits text on newlines so that multi-line content from Groq
+    (e.g. bulleted job-duty lists joined by \\n) becomes individual
+    DOCX paragraphs instead of one compressed block.
+    """
+    lines = text.split('\n')
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        para = doc.add_paragraph()
+        _add_text_with_number_highlighting(para, line, formatting)
+        _apply_paragraph_alignment(para, formatting)
 
 
 def _add_text_with_buyrug_coloring(para, text: str, base_formatting: dict) -> None:
