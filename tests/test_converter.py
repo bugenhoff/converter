@@ -86,6 +86,7 @@ def test_convert_pdf_prefers_direct_then_ocr(tmp_path: Path, monkeypatch):
     source = tmp_path / "sample.pdf"
     source.write_bytes(b"%PDF-1.4 test")
     output_dir = tmp_path / "out"
+    monkeypatch.setattr("src.conversion.converter.settings.pdf_conversion_mode", "reliability_first")
 
     direct_calls = {"count": 0}
     ocr_calls = {"count": 0}
@@ -119,6 +120,7 @@ def test_convert_pdf_uses_groq_only_after_direct_and_ocr_fail(tmp_path: Path, mo
     source = tmp_path / "sample.pdf"
     source.write_bytes(b"%PDF-1.4 test")
     output_dir = tmp_path / "out"
+    monkeypatch.setattr("src.conversion.converter.settings.pdf_conversion_mode", "reliability_first")
 
     groq_result = output_dir / "sample.docx"
 
@@ -143,3 +145,61 @@ def test_convert_pdf_uses_groq_only_after_direct_and_ocr_fail(tmp_path: Path, mo
     result = convert_pdf_to_docx(source, output_dir)
     assert result == groq_result
     assert result.exists()
+
+
+def test_convert_pdf_groq_only_skips_reliability_branches(tmp_path: Path, monkeypatch):
+    source = tmp_path / "sample.pdf"
+    source.write_bytes(b"%PDF-1.4 test")
+    output_dir = tmp_path / "out"
+    monkeypatch.setattr("src.conversion.converter.settings.pdf_conversion_mode", "groq_only")
+    monkeypatch.setattr("src.conversion.converter.settings.groq_api_key", "test-key")
+
+    monkeypatch.setattr(
+        "src.conversion.converter._convert_pdf_to_docx_direct",
+        lambda *_args, **_kwargs: pytest.fail("direct branch must not be called in groq_only"),
+    )
+    monkeypatch.setattr(
+        "src.conversion.converter._convert_pdf_to_docx_ocr",
+        lambda *_args, **_kwargs: pytest.fail("ocr branch must not be called in groq_only"),
+    )
+
+    def fake_groq(_source, output):
+        result = Path(output) / "sample.docx"
+        result.parent.mkdir(parents=True, exist_ok=True)
+        result.write_text("groq")
+        return result
+
+    monkeypatch.setattr("src.conversion.converter.convert_pdf_to_docx_via_groq", fake_groq)
+
+    result = convert_pdf_to_docx(source, output_dir)
+    assert result.exists()
+    assert result.read_text() == "groq"
+
+
+def test_convert_pdf_groq_first_falls_back_to_reliability(tmp_path: Path, monkeypatch):
+    source = tmp_path / "sample.pdf"
+    source.write_bytes(b"%PDF-1.4 test")
+    output_dir = tmp_path / "out"
+    monkeypatch.setattr("src.conversion.converter.settings.pdf_conversion_mode", "groq_first")
+    monkeypatch.setattr("src.conversion.converter.settings.groq_api_key", "test-key")
+
+    monkeypatch.setattr(
+        "src.conversion.converter.convert_pdf_to_docx_via_groq",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("groq failed")),
+    )
+    monkeypatch.setattr(
+        "src.conversion.converter._convert_pdf_to_docx_direct",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ConversionError("direct failed")),
+    )
+
+    def fake_ocr(_source, output):
+        result = Path(output) / "sample.docx"
+        result.parent.mkdir(parents=True, exist_ok=True)
+        result.write_text("ocr")
+        return result
+
+    monkeypatch.setattr("src.conversion.converter._convert_pdf_to_docx_ocr", fake_ocr)
+
+    result = convert_pdf_to_docx(source, output_dir)
+    assert result.exists()
+    assert result.read_text() == "ocr"

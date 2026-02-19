@@ -6,8 +6,10 @@ import base64
 import logging
 import subprocess
 import tempfile
+from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 try:
     import groq
@@ -26,10 +28,18 @@ except ImportError:
 from ..config.settings import settings
 
 logger = logging.getLogger(__name__)
+T = TypeVar("T")
 
 
 class GroqConversionError(RuntimeError):
     """Signals that Groq LLM conversion failed."""
+
+
+@dataclass
+class _GroqTask:
+    page_items: list[tuple[int, T]]
+    image_max_side: int
+    retries_left: int
 
 
 def convert_pdf_to_docx_via_groq(source_path: Path, output_dir: Path) -> Path:
@@ -142,43 +152,136 @@ def _pdf_bytes_to_images(pdf_bytes: bytes) -> list[Image.Image]:
 
 
 def _process_pil_images_with_groq(images: list[Image.Image]) -> dict[str, Any]:
-    """Process PIL Images with Groq vision LLM in batches."""
-    
-    client = groq.Groq(api_key=settings.groq_api_key)
-    
-    batch_size = settings.groq_batch_size
-    batches = [images[i:i + batch_size] for i in range(0, len(images), batch_size)]
-    logger.info(
-        "Processing %d images in %d batches (batch_size=%d, max_tokens=%d, max_side=%d)",
-        len(images),
-        len(batches),
-        batch_size,
-        settings.groq_max_tokens,
-        settings.groq_image_max_side,
+    """Process PIL Images with adaptive Groq batching strategy."""
+
+    merged = _process_images_with_adaptive_strategy(
+        images,
+        _process_pil_batch_with_groq,
     )
-    
-    all_results = []
-    page_offset = 1
-    
-    for batch_idx, batch_images in enumerate(batches):
-        logger.info("Processing batch %d/%d with %d images", batch_idx + 1, len(batches), len(batch_images))
-        
-        try:
-            batch_result = _process_pil_batch_with_groq(client, batch_images, page_offset, batch_idx)
-            all_results.append(batch_result)
-            page_offset += len(batch_images)
-        except Exception as e:
-            logger.error("Failed to process batch %d: %s", batch_idx + 1, e)
-            raise GroqConversionError(
-                f"Groq batch {batch_idx + 1}/{len(batches)} failed; refusing partial output"
-            ) from e
-    
-    if not all_results:
-        raise GroqConversionError("All batches failed to process")
-    
-    # Merge all batch results into single document
-    merged = _merge_batch_results(all_results)
     _validate_merged_pages(merged, expected_pages=len(images))
+    return merged
+
+
+def _process_images_with_adaptive_strategy(
+    images: list[T],
+    processor: Callable[[Any, list[T], int, int, int], dict[str, Any]],
+) -> dict[str, Any]:
+    """Process pages with adaptive split/downscale/retry strategy."""
+
+    if not images:
+        raise GroqConversionError("No images to process")
+
+    client = groq.Groq(api_key=settings.groq_api_key)
+    tasks = _build_initial_tasks(images)
+
+    all_results: list[dict[str, Any]] = []
+    max_requests = settings.groq_max_requests_per_document
+    requests_made = 0
+
+    logger.info(
+        "Adaptive Groq scheduler started: pages=%d initial_batch=%d min_batch=%d max_side=%d min_side=%d max_requests=%s retries=%d",
+        len(images),
+        settings.groq_batch_size,
+        settings.groq_min_batch_size,
+        settings.groq_image_max_side,
+        settings.groq_min_image_max_side,
+        "unlimited" if max_requests == 0 else max_requests,
+        settings.groq_retry_per_task,
+    )
+
+    while tasks:
+        task = tasks.popleft()
+        expected_pages = [page_number for page_number, _ in task.page_items]
+
+        if max_requests > 0 and requests_made >= max_requests:
+            raise GroqConversionError(
+                f"Groq request limit reached ({requests_made}/{max_requests}) before full document coverage"
+            )
+
+        requests_made += 1
+        request_cap = "unlimited" if max_requests == 0 else str(max_requests)
+        logger.info(
+            "Groq request %d/%s: pages=%s pages_in_task=%d image_max_side=%d max_tokens=%d",
+            requests_made,
+            request_cap,
+            _format_page_numbers(expected_pages),
+            len(expected_pages),
+            task.image_max_side,
+            settings.groq_max_tokens,
+        )
+
+        try:
+            page_payload = [item for _, item in task.page_items]
+            batch_result = processor(
+                client,
+                page_payload,
+                expected_pages[0],
+                requests_made - 1,
+                task.image_max_side,
+            )
+            _validate_batch_pages(batch_result, expected_pages)
+            all_results.append(batch_result)
+            continue
+        except Exception as exc:
+            logger.warning(
+                "Groq task failed for pages=%s image_max_side=%d retries_left=%d: %s",
+                _format_page_numbers(expected_pages),
+                task.image_max_side,
+                task.retries_left,
+                exc,
+            )
+
+        split_tasks = _split_task(task)
+        if split_tasks:
+            logger.info(
+                "Adaptive action=split pages=%s into %s + %s",
+                _format_page_numbers(expected_pages),
+                _format_page_numbers([n for n, _ in split_tasks[0].page_items]),
+                _format_page_numbers([n for n, _ in split_tasks[1].page_items]),
+            )
+            tasks.appendleft(split_tasks[1])
+            tasks.appendleft(split_tasks[0])
+            continue
+
+        downscaled = _downscale_task(task)
+        if downscaled:
+            logger.info(
+                "Adaptive action=downscale pages=%s old_side=%d new_side=%d",
+                _format_page_numbers(expected_pages),
+                task.image_max_side,
+                downscaled.image_max_side,
+            )
+            tasks.appendleft(downscaled)
+            continue
+
+        if task.retries_left > 0:
+            retried_task = _GroqTask(
+                page_items=task.page_items,
+                image_max_side=task.image_max_side,
+                retries_left=task.retries_left - 1,
+            )
+            logger.info(
+                "Adaptive action=retry pages=%s retries_left=%d",
+                _format_page_numbers(expected_pages),
+                retried_task.retries_left,
+            )
+            tasks.appendleft(retried_task)
+            continue
+
+        raise GroqConversionError(
+            "Groq conversion failed after exhausting split/downscale/retry policy for pages "
+            f"{_format_page_numbers(expected_pages)}"
+        )
+
+    if not all_results:
+        raise GroqConversionError("All Groq tasks failed to process")
+
+    merged = _merge_batch_results(all_results)
+    logger.info(
+        "Adaptive Groq scheduler completed: requests_made=%d final_pages=%d",
+        requests_made,
+        len(merged.get("pages", [])),
+    )
     return merged
 
 
@@ -187,14 +290,15 @@ def _process_pil_batch_with_groq(
     pil_images: list[Image.Image],
     start_page: int,
     batch_idx: int,
+    image_max_side: int,
 ) -> dict[str, Any]:
     """Process a batch of PIL Images with Groq LLM."""
     
     image_content = []
     for img in pil_images:
         # Resize image if too large to save tokens
-        if max(img.size) > settings.groq_image_max_side:
-            ratio = settings.groq_image_max_side / max(img.size)
+        if max(img.size) > image_max_side:
+            ratio = image_max_side / max(img.size)
             new_size = tuple(int(dim * ratio) for dim in img.size)
             img = img.resize(new_size, Image.Resampling.LANCZOS)
         
@@ -371,42 +475,12 @@ def _pdf_to_images(pdf_path: Path, output_dir: Path) -> list[Path]:
 
 
 def _process_images_with_groq(image_paths: list[Path]) -> dict[str, Any]:
-    """Process images with Groq vision LLM in batches (max 5 images per request)."""
-    
-    client = groq.Groq(api_key=settings.groq_api_key)
-    
-    batch_size = settings.groq_batch_size
-    batches = [image_paths[i:i + batch_size] for i in range(0, len(image_paths), batch_size)]
-    logger.info(
-        "Processing %d images in %d batches (batch_size=%d, max_tokens=%d, max_side=%d)",
-        len(image_paths),
-        len(batches),
-        batch_size,
-        settings.groq_max_tokens,
-        settings.groq_image_max_side,
+    """Process images with adaptive Groq batching strategy."""
+
+    merged = _process_images_with_adaptive_strategy(
+        image_paths,
+        _process_batch_with_groq,
     )
-    
-    all_results = []
-    page_offset = 1
-    
-    for batch_idx, batch_images in enumerate(batches):
-        logger.info("Processing batch %d/%d with %d images", batch_idx + 1, len(batches), len(batch_images))
-        
-        try:
-            batch_result = _process_batch_with_groq(client, batch_images, page_offset, batch_idx)
-            all_results.append(batch_result)
-            page_offset += len(batch_images)
-        except Exception as e:
-            logger.error("Failed to process batch %d: %s", batch_idx + 1, e)
-            raise GroqConversionError(
-                f"Groq batch {batch_idx + 1}/{len(batches)} failed; refusing partial output"
-            ) from e
-    
-    if not all_results:
-        raise GroqConversionError("All batches failed to process")
-    
-    # Merge all batch results into single document
-    merged = _merge_batch_results(all_results)
     _validate_merged_pages(merged, expected_pages=len(image_paths))
     return merged
 
@@ -416,17 +490,16 @@ def _process_batch_with_groq(
     image_paths: list[Path],
     start_page: int,
     batch_idx: int,
+    image_max_side: int,
 ) -> dict[str, Any]:
     """Process a single batch of images (up to 5) with Groq LLM."""
-    
-    # Keep explicit page range in prompt to reduce page-number drift.
-    page_numbers = list(range(start_page, start_page + len(image_paths)))
+
     image_content = []
     for img_path in image_paths:
         # Resize image if too large to save tokens (reduced resolution)
         with Image.open(img_path) as img:
-            if max(img.size) > settings.groq_image_max_side:
-                ratio = settings.groq_image_max_side / max(img.size)
+            if max(img.size) > image_max_side:
+                ratio = image_max_side / max(img.size)
                 new_size = tuple(int(dim * ratio) for dim in img.size)
                 img = img.resize(new_size, Image.Resampling.LANCZOS)
                 
@@ -532,6 +605,100 @@ def _process_batch_with_groq(
     except Exception as e:
         raise GroqConversionError(f"Groq API request failed: {e}") from e
 
+
+def _build_initial_tasks(images: list[T]) -> deque[_GroqTask]:
+    batch_size = settings.groq_batch_size
+    enumerated = [(idx + 1, image) for idx, image in enumerate(images)]
+    tasks: deque[_GroqTask] = deque()
+    for i in range(0, len(enumerated), batch_size):
+        tasks.append(
+            _GroqTask(
+                page_items=enumerated[i:i + batch_size],
+                image_max_side=settings.groq_image_max_side,
+                retries_left=settings.groq_retry_per_task,
+            )
+        )
+    return tasks
+
+
+def _split_task(task: _GroqTask) -> tuple[_GroqTask, _GroqTask] | None:
+    if len(task.page_items) <= settings.groq_min_batch_size:
+        return None
+
+    midpoint = len(task.page_items) // 2
+    if midpoint < settings.groq_min_batch_size:
+        return None
+
+    left_pages = task.page_items[:midpoint]
+    right_pages = task.page_items[midpoint:]
+    if len(left_pages) < settings.groq_min_batch_size or len(right_pages) < settings.groq_min_batch_size:
+        return None
+
+    return (
+        _GroqTask(
+            page_items=left_pages,
+            image_max_side=task.image_max_side,
+            retries_left=task.retries_left,
+        ),
+        _GroqTask(
+            page_items=right_pages,
+            image_max_side=task.image_max_side,
+            retries_left=task.retries_left,
+        ),
+    )
+
+
+def _downscale_task(task: _GroqTask) -> _GroqTask | None:
+    if task.image_max_side <= settings.groq_min_image_max_side:
+        return None
+
+    reduced = int(task.image_max_side * settings.groq_image_side_reduction_factor)
+    if reduced >= task.image_max_side:
+        reduced = task.image_max_side - 1
+    if reduced < settings.groq_min_image_max_side:
+        reduced = settings.groq_min_image_max_side
+    if reduced >= task.image_max_side:
+        return None
+
+    return _GroqTask(
+        page_items=task.page_items,
+        image_max_side=reduced,
+        retries_left=task.retries_left,
+    )
+
+
+def _format_page_numbers(page_numbers: list[int]) -> str:
+    if not page_numbers:
+        return "[]"
+    if len(page_numbers) == 1:
+        return str(page_numbers[0])
+    return f"{page_numbers[0]}-{page_numbers[-1]}"
+
+
+def _validate_batch_pages(batch_result: dict[str, Any], expected_pages: list[int]) -> None:
+    pages = batch_result.get("pages", [])
+    actual_page_numbers: list[int] = []
+    for page in pages:
+        raw_page_number = page.get("page_number")
+        try:
+            actual_page_numbers.append(int(raw_page_number))
+        except (TypeError, ValueError) as exc:
+            raise GroqConversionError(
+                f"Groq batch output has invalid page number: {raw_page_number!r}"
+            ) from exc
+
+    if len(actual_page_numbers) != len(set(actual_page_numbers)):
+        raise GroqConversionError(f"Groq batch output has duplicate pages: {actual_page_numbers}")
+
+    expected_set = set(expected_pages)
+    actual_set = set(actual_page_numbers)
+    missing = sorted(expected_set - actual_set)
+    extra = sorted(actual_set - expected_set)
+    if missing or extra:
+        raise GroqConversionError(
+            "Groq batch output incomplete "
+            f"(expected={sorted(expected_set)}, actual={sorted(actual_set)}, missing={missing}, extra={extra})"
+        )
 
 
 def _merge_batch_results(batch_results: list[dict[str, Any]]) -> dict[str, Any]:

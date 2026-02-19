@@ -23,9 +23,15 @@
    OCR_LANGUAGES=rus+eng+uzb+uzb_cyrl
    GROQ_API_KEY=your_groq_api_key_here
    GROQ_MODEL=llama-3.2-11b-vision-preview
+   PDF_CONVERSION_MODE=groq_only
    GROQ_MAX_TOKENS=8000
    GROQ_BATCH_SIZE=3
+   GROQ_MAX_REQUESTS_PER_DOCUMENT=0
+   GROQ_MIN_BATCH_SIZE=1
    GROQ_IMAGE_MAX_SIDE=800
+   GROQ_MIN_IMAGE_MAX_SIDE=480
+   GROQ_IMAGE_SIDE_REDUCTION_FACTOR=0.8
+   GROQ_RETRY_PER_TASK=2
    GROQ_PDF_IMAGE_DPI=200
    TEMP_DIR=./tmp
    LOG_LEVEL=INFO
@@ -49,8 +55,9 @@
 ## Что делает бот
 
 - Принимает `.doc`, `.docx`, `.pdf`, изображения (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.tif`, `.tiff`, `.webp`) и Telegram `photo`.
-- Для PDF использует надежный pipeline: `pdf2docx` -> OCR (`ocrmypdf` + `pdf2docx`) -> Groq fallback.
-- Для изображений конвертирует image -> PDF -> OCR -> DOCX.
+- Для PDF/изображений поддерживает режимы: `groq_only`, `groq_first`, `reliability_first` через `PDF_CONVERSION_MODE`.
+- В режиме Groq использует адаптивную стратегию: split батчей, downscale изображений, retries и контроль лимита запросов на документ.
+- Для изображений конвертирует image -> temp PDF -> выбранный PDF pipeline.
 - Поддерживает транслитерацию узбекской латиницы в кириллицу для готового DOCX через inline-кнопку.
 - Чистит временные файлы и сообщает об ошибках (например, если LibreOffice возвращает код ошибки).
 
@@ -58,7 +65,7 @@
 
 - `bot.py` — точка входа.
 - `src/config/settings.py` — загрузка `.env` и настройка путей.
-- `src/conversion/converter.py` — модуль конвертации `.doc/.pdf/.image` с надежным fallback.
+- `src/conversion/converter.py` — модуль конвертации `.doc/.pdf/.image` с режимами Groq/deterministic.
 - `src/conversion/transliteration.py` — транслитерация узбекской латиницы -> кириллица в DOCX.
 - `src/bot/handlers.py` — Telegram-хендлеры (`/start`, прием документов/фото, callback транслитерации).
 - `src/bot/queue.py` — утилиты для хранения очереди файлов на уровне чата.
@@ -77,7 +84,7 @@ pytest
 - Бот работает в режиме polling и рассчитан на небольшие файлы (по умолчанию до 20 МБ).
 - Убедитесь, что `TEMP_DIR` доступен для записи, и присваивайте уникальные имена файлам внутри одного запроса.
 - Если LibreOffice установлен через Flatpak (`org.libreoffice.LibreOffice`), бот автоматически запустит его через `flatpak run --command=soffice ...`. При необходимости задайте собственную команду с помощью `LIBREOFFICE_PATH`.
-- **PDF обработка**: Бот использует deterministic-конвертацию в приоритете; Groq применяется только как последний fallback.  
+- **PDF режим**: управляется переменной `PDF_CONVERSION_MODE` (`groq_only | groq_first | reliability_first`).
 - OCR использует Tesseract. Настройте `TESSDATA_PREFIX` и `OCR_LANGUAGES`, чтобы перечислить доступные языки (по умолчанию `rus+eng+uzb+uzb_cyrl`).
 - **Транслитерация**: по кнопке `Транслитерация` создается новый `<name>_cyrillic.docx`. Обработка выполняется для текстовых слоев DOCX (paragraph/table/header/footer).
-- **Groq limits**: лимиты ответа и размера vision-запроса настраиваются через `GROQ_MAX_TOKENS`, `GROQ_BATCH_SIZE`, `GROQ_IMAGE_MAX_SIDE`, `GROQ_PDF_IMAGE_DPI`.
+- **Groq limits**: `GROQ_MAX_TOKENS` ограничивает размер ответа; нагрузка на вход регулируется `GROQ_BATCH_SIZE`, `GROQ_IMAGE_MAX_SIDE`, `GROQ_PDF_IMAGE_DPI` и адаптивными параметрами (`GROQ_MIN_BATCH_SIZE`, `GROQ_MIN_IMAGE_MAX_SIDE`, `GROQ_IMAGE_SIDE_REDUCTION_FACTOR`, `GROQ_RETRY_PER_TASK`, `GROQ_MAX_REQUESTS_PER_DOCUMENT`).

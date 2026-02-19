@@ -84,7 +84,7 @@ def convert_doc_to_docx(
 
 
 def convert_pdf_to_docx(source_path: Path, output_dir: Path) -> Path:
-    """Convert PDF to DOCX with reliability-first deterministic pipeline."""
+    """Convert PDF to DOCX according to PDF_CONVERSION_MODE."""
 
     source_path = Path(source_path)
     output_dir = Path(output_dir)
@@ -93,32 +93,23 @@ def convert_pdf_to_docx(source_path: Path, output_dir: Path) -> Path:
     if not source_path.exists():
         raise FileNotFoundError(f"Source file {source_path} was not found")
 
-    try:
-        logger.info("Attempting direct PDF->DOCX conversion via pdf2docx")
-        return _convert_pdf_to_docx_direct(source_path, output_dir)
-    except Exception as exc:
-        logger.warning("Direct pdf2docx conversion failed (%s), trying OCR pipeline", exc)
+    mode = settings.pdf_conversion_mode
+    logger.info("PDF conversion mode=%s", mode)
 
-    try:
-        logger.info("Attempting OCR PDF->DOCX conversion")
-        return _convert_pdf_to_docx_ocr(source_path, output_dir)
-    except Exception as exc:
-        logger.warning("OCR PDF conversion failed (%s)", exc)
-
-    if convert_pdf_to_docx_via_groq and settings.groq_api_key:
+    if mode == "groq_only":
+        return _convert_pdf_to_docx_groq(source_path, output_dir)
+    if mode == "groq_first":
         try:
-            logger.info("Attempting final fallback PDF conversion via Groq LLM")
-            return convert_pdf_to_docx_via_groq(source_path, output_dir)
-        except (GroqConversionError, Exception) as exc:
-            logger.warning("Groq LLM conversion failed (%s)", exc)
+            return _convert_pdf_to_docx_groq(source_path, output_dir)
+        except Exception as exc:
+            logger.warning("Groq-first conversion failed (%s), falling back to reliability pipeline", exc)
+            return _convert_pdf_to_docx_reliability(source_path, output_dir)
 
-    raise ConversionError(
-        "Failed to convert PDF using direct, OCR and Groq fallback pipelines"
-    )
+    return _convert_pdf_to_docx_reliability(source_path, output_dir)
 
 
 def convert_image_to_docx(source_path: Path, output_dir: Path) -> Path:
-    """Convert image files (png/jpg/...) to DOCX through OCR-enabled PDF pipeline."""
+    """Convert image files (png/jpg/...) to DOCX according to PDF_CONVERSION_MODE."""
 
     if Image is None:
         raise ImportError("Pillow is required for image conversion")
@@ -140,11 +131,48 @@ def convert_image_to_docx(source_path: Path, output_dir: Path) -> Path:
         except Exception as exc:
             raise ConversionError(f"Failed to prepare image for OCR: {exc}") from exc
 
-        docx_path = _convert_pdf_to_docx_ocr(temp_pdf, output_dir)
+        if settings.pdf_conversion_mode == "groq_only":
+            docx_path = convert_pdf_to_docx(temp_pdf, output_dir)
+        else:
+            docx_path = _convert_pdf_to_docx_ocr(temp_pdf, output_dir)
         final_path = output_dir / f"{source_path.stem}.docx"
         if docx_path != final_path:
             docx_path.replace(final_path)
         return final_path
+
+
+def _convert_pdf_to_docx_groq(source_path: Path, output_dir: Path) -> Path:
+    if not (convert_pdf_to_docx_via_groq and settings.groq_api_key):
+        raise ConversionError("Groq conversion is not available: configure GROQ_API_KEY")
+    try:
+        logger.info("Attempting PDF conversion via Groq LLM")
+        return convert_pdf_to_docx_via_groq(source_path, output_dir)
+    except (GroqConversionError, Exception) as exc:
+        raise ConversionError(f"Groq conversion failed: {exc}") from exc
+
+
+def _convert_pdf_to_docx_reliability(source_path: Path, output_dir: Path) -> Path:
+    try:
+        logger.info("Attempting direct PDF->DOCX conversion via pdf2docx")
+        return _convert_pdf_to_docx_direct(source_path, output_dir)
+    except Exception as exc:
+        logger.warning("Direct pdf2docx conversion failed (%s), trying OCR pipeline", exc)
+
+    try:
+        logger.info("Attempting OCR PDF->DOCX conversion")
+        return _convert_pdf_to_docx_ocr(source_path, output_dir)
+    except Exception as exc:
+        logger.warning("OCR PDF conversion failed (%s)", exc)
+
+    try:
+        logger.info("Attempting final fallback PDF conversion via Groq LLM")
+        return _convert_pdf_to_docx_groq(source_path, output_dir)
+    except Exception as exc:
+        logger.warning("Groq LLM conversion failed (%s)", exc)
+
+    raise ConversionError(
+        "Failed to convert PDF using direct, OCR and Groq fallback pipelines"
+    )
 
 
 def _convert_pdf_to_docx_direct(source_path: Path, output_dir: Path) -> Path:

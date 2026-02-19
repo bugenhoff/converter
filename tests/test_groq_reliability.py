@@ -26,23 +26,31 @@ def test_process_pil_images_with_groq_fails_on_partial_batches(monkeypatch):
 
     calls = {"count": 0}
 
-    monkeypatch.setattr(groq_converter.settings, "groq_batch_size", 3)
+    monkeypatch.setattr(groq_converter.settings, "groq_batch_size", 4)
+    monkeypatch.setattr(groq_converter.settings, "groq_min_batch_size", 1)
+    monkeypatch.setattr(groq_converter.settings, "groq_image_max_side", 800)
+    monkeypatch.setattr(groq_converter.settings, "groq_min_image_max_side", 480)
+    monkeypatch.setattr(groq_converter.settings, "groq_image_side_reduction_factor", 0.8)
+    monkeypatch.setattr(groq_converter.settings, "groq_retry_per_task", 1)
+    monkeypatch.setattr(groq_converter.settings, "groq_max_requests_per_document", 0)
 
-    def fake_process_batch(client, pil_images, start_page, batch_idx):
+    def fake_process_batch(client, pil_images, start_page, batch_idx, image_max_side):
         calls["count"] += 1
-        if batch_idx == 1:
-            raise RuntimeError("boom")
+        if len(pil_images) > 2:
+            raise RuntimeError("too many pages for one request")
         return {
             "title": "ok",
-            "pages": [{"page_number": start_page, "sections": []}],
+            "pages": [
+                {"page_number": page_number, "sections": []}
+                for page_number in range(start_page, start_page + len(pil_images))
+            ],
         }
 
     monkeypatch.setattr(groq_converter, "_process_pil_batch_with_groq", fake_process_batch)
 
-    with pytest.raises(GroqConversionError, match="refusing partial output"):
-        groq_converter._process_pil_images_with_groq([object(), object(), object(), object()])
-
-    assert calls["count"] == 2
+    merged = groq_converter._process_pil_images_with_groq([object(), object(), object(), object()])
+    assert calls["count"] == 3
+    assert [page["page_number"] for page in merged["pages"]] == [1, 2, 3, 4]
 
 
 def test_process_pil_images_with_groq_uses_configurable_batch_size(monkeypatch):
@@ -58,7 +66,14 @@ def test_process_pil_images_with_groq_uses_configurable_batch_size(monkeypatch):
 
     start_pages: list[int] = []
 
-    def fake_process_batch(client, pil_images, start_page, batch_idx):
+    monkeypatch.setattr(groq_converter.settings, "groq_min_batch_size", 1)
+    monkeypatch.setattr(groq_converter.settings, "groq_image_max_side", 800)
+    monkeypatch.setattr(groq_converter.settings, "groq_min_image_max_side", 480)
+    monkeypatch.setattr(groq_converter.settings, "groq_image_side_reduction_factor", 0.8)
+    monkeypatch.setattr(groq_converter.settings, "groq_retry_per_task", 1)
+    monkeypatch.setattr(groq_converter.settings, "groq_max_requests_per_document", 0)
+
+    def fake_process_batch(client, pil_images, start_page, batch_idx, image_max_side):
         start_pages.append(start_page)
         return {
             "title": "ok",
@@ -79,3 +94,63 @@ def test_process_pil_images_with_groq_uses_configurable_batch_size(monkeypatch):
 
     assert start_pages == [1, 3, 5]
     assert [p["page_number"] for p in merged["pages"]] == [1, 2, 3, 4, 5]
+
+
+def test_process_pil_images_with_groq_downscales_until_min_side(monkeypatch):
+    class DummyGroqClient:
+        pass
+
+    monkeypatch.setattr(
+        groq_converter,
+        "groq",
+        SimpleNamespace(Groq=lambda api_key: DummyGroqClient()),
+    )
+
+    monkeypatch.setattr(groq_converter.settings, "groq_batch_size", 1)
+    monkeypatch.setattr(groq_converter.settings, "groq_min_batch_size", 1)
+    monkeypatch.setattr(groq_converter.settings, "groq_image_max_side", 800)
+    monkeypatch.setattr(groq_converter.settings, "groq_min_image_max_side", 480)
+    monkeypatch.setattr(groq_converter.settings, "groq_image_side_reduction_factor", 0.5)
+    monkeypatch.setattr(groq_converter.settings, "groq_retry_per_task", 0)
+    monkeypatch.setattr(groq_converter.settings, "groq_max_requests_per_document", 0)
+
+    seen_sides: list[int] = []
+
+    def fake_process_batch(client, pil_images, start_page, batch_idx, image_max_side):
+        seen_sides.append(image_max_side)
+        if image_max_side > 500:
+            raise RuntimeError("context overflow")
+        return {"title": "ok", "pages": [{"page_number": start_page, "sections": []}]}
+
+    monkeypatch.setattr(groq_converter, "_process_pil_batch_with_groq", fake_process_batch)
+
+    merged = groq_converter._process_pil_images_with_groq([object()])
+    assert [p["page_number"] for p in merged["pages"]] == [1]
+    assert seen_sides == [800, 480]
+
+
+def test_process_pil_images_with_groq_stops_on_request_limit(monkeypatch):
+    class DummyGroqClient:
+        pass
+
+    monkeypatch.setattr(
+        groq_converter,
+        "groq",
+        SimpleNamespace(Groq=lambda api_key: DummyGroqClient()),
+    )
+
+    monkeypatch.setattr(groq_converter.settings, "groq_batch_size", 4)
+    monkeypatch.setattr(groq_converter.settings, "groq_min_batch_size", 1)
+    monkeypatch.setattr(groq_converter.settings, "groq_image_max_side", 800)
+    monkeypatch.setattr(groq_converter.settings, "groq_min_image_max_side", 480)
+    monkeypatch.setattr(groq_converter.settings, "groq_image_side_reduction_factor", 0.8)
+    monkeypatch.setattr(groq_converter.settings, "groq_retry_per_task", 0)
+    monkeypatch.setattr(groq_converter.settings, "groq_max_requests_per_document", 2)
+
+    def fake_process_batch(client, pil_images, start_page, batch_idx, image_max_side):
+        raise RuntimeError("force split")
+
+    monkeypatch.setattr(groq_converter, "_process_pil_batch_with_groq", fake_process_batch)
+
+    with pytest.raises(GroqConversionError, match="request limit reached"):
+        groq_converter._process_pil_images_with_groq([object(), object(), object(), object()])
