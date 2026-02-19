@@ -13,10 +13,18 @@ from functools import lru_cache
 
 try:
     import ocrmypdf
-    from pdf2docx import Converter
 except ImportError:
     ocrmypdf = None
+
+try:
+    from pdf2docx import Converter
+except ImportError:
     Converter = None
+
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 try:
     from .groq_converter import convert_pdf_to_docx_via_groq, GroqConversionError
@@ -76,20 +84,95 @@ def convert_doc_to_docx(
 
 
 def convert_pdf_to_docx(source_path: Path, output_dir: Path) -> Path:
-    """Convert PDF to DOCX using Groq LLM with OCR fallback."""
-    
-    # Try Groq LLM first (if available and configured)
+    """Convert PDF to DOCX with reliability-first deterministic pipeline."""
+
+    source_path = Path(source_path)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if not source_path.exists():
+        raise FileNotFoundError(f"Source file {source_path} was not found")
+
+    try:
+        logger.info("Attempting direct PDF->DOCX conversion via pdf2docx")
+        return _convert_pdf_to_docx_direct(source_path, output_dir)
+    except Exception as exc:
+        logger.warning("Direct pdf2docx conversion failed (%s), trying OCR pipeline", exc)
+
+    try:
+        logger.info("Attempting OCR PDF->DOCX conversion")
+        return _convert_pdf_to_docx_ocr(source_path, output_dir)
+    except Exception as exc:
+        logger.warning("OCR PDF conversion failed (%s)", exc)
+
     if convert_pdf_to_docx_via_groq and settings.groq_api_key:
         try:
-            logger.info("Attempting PDF conversion via Groq LLM")
+            logger.info("Attempting final fallback PDF conversion via Groq LLM")
             return convert_pdf_to_docx_via_groq(source_path, output_dir)
-        except (GroqConversionError, Exception) as e:
-            logger.warning("Groq LLM conversion failed (%s), falling back to OCR method", e)
-    else:
-        logger.info("Groq not configured, using OCR method")
-    
-    # Fallback to OCR method
-    return _convert_pdf_to_docx_ocr(source_path, output_dir)
+        except (GroqConversionError, Exception) as exc:
+            logger.warning("Groq LLM conversion failed (%s)", exc)
+
+    raise ConversionError(
+        "Failed to convert PDF using direct, OCR and Groq fallback pipelines"
+    )
+
+
+def convert_image_to_docx(source_path: Path, output_dir: Path) -> Path:
+    """Convert image files (png/jpg/...) to DOCX through OCR-enabled PDF pipeline."""
+
+    if Image is None:
+        raise ImportError("Pillow is required for image conversion")
+
+    source_path = Path(source_path)
+    if not source_path.exists():
+        raise FileNotFoundError(f"Source file {source_path} was not found")
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        temp_pdf = Path(tmp_dir) / f"{source_path.stem}.pdf"
+        try:
+            with Image.open(source_path) as image:
+                if image.mode in ("RGBA", "LA", "P"):
+                    image = image.convert("RGB")
+                image.save(temp_pdf, "PDF", resolution=300.0)
+        except Exception as exc:
+            raise ConversionError(f"Failed to prepare image for OCR: {exc}") from exc
+
+        docx_path = _convert_pdf_to_docx_ocr(temp_pdf, output_dir)
+        final_path = output_dir / f"{source_path.stem}.docx"
+        if docx_path != final_path:
+            docx_path.replace(final_path)
+        return final_path
+
+
+def _convert_pdf_to_docx_direct(source_path: Path, output_dir: Path) -> Path:
+    """Convert PDF to DOCX directly via pdf2docx without OCR."""
+    if Converter is None:
+        raise ImportError("pdf2docx is required for direct PDF conversion")
+
+    source_path = Path(source_path)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    docx_path = output_dir / f"{source_path.stem}.docx"
+
+    cv = None
+    try:
+        cv = Converter(str(source_path))
+        cv.convert(str(docx_path), start=0, end=None)
+    except Exception as exc:
+        raise ConversionError(f"Direct PDF to DOCX conversion failed: {exc}") from exc
+    finally:
+        if cv is not None:
+            cv.close()
+
+    if not docx_path.exists():
+        raise ConversionError("Direct conversion reported success but output file is missing")
+    if docx_path.stat().st_size == 0:
+        raise ConversionError("Direct conversion produced an empty DOCX file")
+
+    return docx_path
 
 
 def _convert_pdf_to_docx_ocr(source_path: Path, output_dir: Path) -> Path:
@@ -128,12 +211,15 @@ def _convert_pdf_to_docx_ocr(source_path: Path, output_dir: Path) -> Path:
 
         logger.info("Starting PDF->DOCX conversion for %s", source_path)
 
+        cv = None
         try:
             cv = Converter(str(searchable_pdf))
             cv.convert(str(docx_path), start=0, end=None)
-            cv.close()
         except Exception as exc:
             raise ConversionError(f"PDF to DOCX conversion failed: {exc}") from exc
+        finally:
+            if cv is not None:
+                cv.close()
 
     if not docx_path.exists():
         raise ConversionError("Output file is missing after conversion")

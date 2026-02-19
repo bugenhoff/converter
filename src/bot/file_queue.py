@@ -4,17 +4,23 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
 import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from telegram import InputFile, Update, Message
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Message, Update
 from telegram.ext import ContextTypes
 
 from ..config.settings import settings
-from ..conversion.converter import ConversionError, convert_doc_to_docx, convert_pdf_to_docx
+from ..conversion.converter import (
+    ConversionError,
+    convert_doc_to_docx,
+    convert_image_to_docx,
+    convert_pdf_to_docx,
+)
 from ..conversion.memory_processor import (
     MemoryHandle,
     convert_file_in_memory,
@@ -28,6 +34,7 @@ PROCESSING_WINDOW_SECONDS = 10
 MAX_FILES_PER_BATCH = 10
 MAX_FILE_SIZE_MB = 50
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+TRANSLITERATION_JOB_TTL_SECONDS = 2 * 60 * 60
 
 
 def create_progress_bar(current: int, total: int, length: int = 20) -> str:
@@ -53,7 +60,7 @@ class QueuedFile:
 
     memory_handle: MemoryHandle
     original_name: str
-    file_type: str  # 'doc' or 'pdf'
+    file_type: str  # 'doc', 'pdf' or 'image'
     user_id: int
     message_id: int
     file_size: int
@@ -74,11 +81,56 @@ class UserQueue:
     animation_task: Optional[asyncio.Task] = None  # Animation task
 
 
+@dataclass
+class TransliterationJob:
+    """Metadata required to perform one-shot transliteration callback."""
+
+    user_id: int
+    file_id: str
+    docx_name: str
+    created_at: float = field(default_factory=time.time)
+
+
 class FileQueueManager:
     """Manages file queues for all users with automatic processing."""
     
     def __init__(self):
         self.user_queues: Dict[int, UserQueue] = {}
+        self.transliteration_jobs: Dict[str, TransliterationJob] = {}
+
+    def _cleanup_expired_transliteration_jobs(self) -> None:
+        now = time.time()
+        expired_tokens = [
+            token
+            for token, job in self.transliteration_jobs.items()
+            if now - job.created_at > TRANSLITERATION_JOB_TTL_SECONDS
+        ]
+        for token in expired_tokens:
+            self.transliteration_jobs.pop(token, None)
+        if expired_tokens:
+            logger.debug("Cleaned up %d expired transliteration jobs", len(expired_tokens))
+
+    def create_transliteration_job(self, user_id: int, file_id: str, docx_name: str) -> str:
+        self._cleanup_expired_transliteration_jobs()
+        token = secrets.token_urlsafe(16)
+        self.transliteration_jobs[token] = TransliterationJob(
+            user_id=user_id,
+            file_id=file_id,
+            docx_name=docx_name,
+        )
+        return token
+
+    def consume_transliteration_job(
+        self, token: str, user_id: int
+    ) -> tuple[Optional[TransliterationJob], Optional[str]]:
+        self._cleanup_expired_transliteration_jobs()
+        job = self.transliteration_jobs.get(token)
+        if not job:
+            return None, "not_found"
+        if job.user_id != user_id:
+            return None, "forbidden"
+        self.transliteration_jobs.pop(token, None)
+        return job, None
     
     async def add_file(
         self,
@@ -334,6 +386,12 @@ class FileQueueManager:
                     self._convert_doc_from_bytes,
                     queued_file.memory_handle.get_bytes(),
                 )
+            if queued_file.file_type == "image":
+                return await asyncio.to_thread(
+                    self._convert_image_from_bytes,
+                    queued_file.memory_handle.get_bytes(),
+                    queued_file.original_name,
+                )
 
             return await asyncio.to_thread(
                 self._convert_pdf_from_bytes,
@@ -381,6 +439,22 @@ class FileQueueManager:
         try:
             with tempfile.TemporaryDirectory(dir=settings.temp_dir) as tmp_output:
                 output_path = convert_pdf_to_docx(tmp_input_path, Path(tmp_output))
+                return output_path.read_bytes()
+        finally:
+            tmp_input_path.unlink(missing_ok=True)
+
+    @staticmethod
+    def _convert_image_from_bytes(payload: bytes, original_name: str) -> bytes:
+        suffix = Path(original_name).suffix.lower() or ".jpg"
+        with tempfile.NamedTemporaryFile(
+            dir=settings.temp_dir, suffix=suffix, delete=False
+        ) as tmp_input:
+            tmp_input.write(payload)
+            tmp_input_path = Path(tmp_input.name)
+
+        try:
+            with tempfile.TemporaryDirectory(dir=settings.temp_dir) as tmp_output:
+                output_path = convert_image_to_docx(tmp_input_path, Path(tmp_output))
                 return output_path.read_bytes()
         finally:
             tmp_input_path.unlink(missing_ok=True)
@@ -570,12 +644,41 @@ class FileQueueManager:
         for docx_bytes, original_name in results:
             docx_name = Path(original_name).with_suffix('.docx').name
             try:
-                await context.bot.send_document(
+                sent_message = await context.bot.send_document(
                     chat_id=user_queue.chat_id,
                     document=InputFile(docx_bytes, filename=docx_name),
                     caption=f"✅ {original_name} → {docx_name}",
+                    reply_markup=None,
                 )
                 success_count += 1
+                try:
+                    if sent_message.document and sent_message.document.file_id:
+                        token = self.create_transliteration_job(
+                            user_id=user_id,
+                            file_id=sent_message.document.file_id,
+                            docx_name=docx_name,
+                        )
+                        markup = InlineKeyboardMarkup(
+                            [[
+                                InlineKeyboardButton(
+                                    "Транслитерация",
+                                    callback_data=f"translit:{token}",
+                                )
+                            ]]
+                        )
+                        await context.bot.edit_message_reply_markup(
+                            chat_id=user_queue.chat_id,
+                            message_id=sent_message.message_id,
+                            reply_markup=markup,
+                        )
+                    else:
+                        logger.warning("No telegram file_id received for %s", docx_name)
+                except Exception as markup_exc:
+                    logger.warning(
+                        "Failed to attach transliteration button for %s: %s",
+                        docx_name,
+                        markup_exc,
+                    )
             except Exception as exc:
                 logger.error("Failed to send file %s: %s", original_name, exc)
                 await self._notify_conversion_error(context, user_id, original_name)

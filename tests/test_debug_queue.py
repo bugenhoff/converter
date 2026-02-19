@@ -41,14 +41,23 @@ class MockBot:
     async def send_message(self, chat_id, text):
         logger.info("BOT MESSAGE to %s: %s", chat_id, text)
     
-    async def send_document(self, chat_id, document, caption=None):
+    async def send_document(self, chat_id, document, caption=None, reply_markup=None):
         logger.info("BOT DOCUMENT to %s: %s", chat_id, caption)
+        class _Doc:
+            file_id = "mock-file-id"
+        class _Msg:
+            message_id = 1
+            document = _Doc()
+        return _Msg()
+
+    async def edit_message_reply_markup(self, chat_id, message_id, reply_markup=None):
+        logger.info("BOT EDIT MARKUP to %s/%s", chat_id, message_id)
 
 class MockContext:
     def __init__(self):
         self.bot = MockBot()
 
-async def test_queue_timer():
+async def _run_queue_timer():
     """Test the queue timer mechanism."""
     logger.info("🔍 Testing queue timer functionality...")
     
@@ -96,5 +105,9 @@ async def test_queue_timer():
 
     logger.info("✅ Timer test completed!")
 
+
+def test_queue_timer():
+    asyncio.run(_run_queue_timer())
+
 if __name__ == "__main__":
-    asyncio.run(test_queue_timer())
+    asyncio.run(_run_queue_timer())

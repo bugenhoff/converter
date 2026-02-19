@@ -211,7 +211,7 @@ def convert_file_in_memory(
     
     Args:
         file_data: File content as bytes or file-like object
-        file_type: 'doc' or 'pdf' 
+        file_type: 'doc', 'pdf', or 'image'
         original_name: Original filename for logging
         
     Returns:
@@ -222,6 +222,8 @@ def convert_file_in_memory(
             return _convert_pdf_in_memory(file_data, original_name)
         elif file_type == 'doc':
             return _convert_doc_in_memory(file_data, original_name)
+        elif file_type == 'image':
+            return _convert_image_in_memory(file_data, original_name)
         else:
             logger.error("Unsupported file type: %s", file_type)
             return None
@@ -300,4 +302,35 @@ def _convert_doc_in_memory(file_data: Union[bytes, BinaryIO], original_name: str
                 
     except Exception as e:
         logger.error("DOC memory conversion failed for %s: %s", original_name, e)
+        return None
+
+
+def _convert_image_in_memory(file_data: Union[bytes, BinaryIO], original_name: str) -> Optional[bytes]:
+    """Convert image bytes to DOCX using OCR pipeline through temporary files."""
+    try:
+        from ..conversion.converter import convert_image_to_docx
+
+        if hasattr(file_data, 'read'):
+            image_bytes = file_data.read()
+        else:
+            image_bytes = file_data
+
+        suffix = Path(original_name).suffix.lower() or ".jpg"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp_input:
+            tmp_input.write(image_bytes)
+            tmp_input_path = Path(tmp_input.name)
+
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                converted_path = convert_image_to_docx(tmp_input_path, Path(tmp_dir))
+                if converted_path and converted_path.exists():
+                    with converted_path.open('rb') as f:
+                        return f.read()
+                return None
+        finally:
+            if tmp_input_path.exists():
+                tmp_input_path.unlink()
+
+    except Exception as e:
+        logger.error("Image memory conversion failed for %s: %s", original_name, e)
         return None

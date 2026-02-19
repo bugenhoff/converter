@@ -148,13 +148,17 @@ def _process_pil_images_with_groq(images: list[Image.Image]) -> dict[str, Any]:
             all_results.append(batch_result)
         except Exception as e:
             logger.error("Failed to process batch %d: %s", batch_idx + 1, e)
-            continue
+            raise GroqConversionError(
+                f"Groq batch {batch_idx + 1}/{len(batches)} failed; refusing partial output"
+            ) from e
     
     if not all_results:
         raise GroqConversionError("All batches failed to process")
     
     # Merge all batch results into single document
-    return _merge_batch_results(all_results)
+    merged = _merge_batch_results(all_results)
+    _validate_merged_pages(merged, expected_pages=len(images))
+    return merged
 
 
 def _process_pil_batch_with_groq(client, pil_images: list[Image.Image], batch_idx: int) -> dict[str, Any]:
@@ -362,14 +366,17 @@ def _process_images_with_groq(image_paths: list[Path]) -> dict[str, Any]:
             all_results.append(batch_result)
         except Exception as e:
             logger.error("Failed to process batch %d: %s", batch_idx + 1, e)
-            # Continue with other batches instead of failing completely
-            continue
+            raise GroqConversionError(
+                f"Groq batch {batch_idx + 1}/{len(batches)} failed; refusing partial output"
+            ) from e
     
     if not all_results:
         raise GroqConversionError("All batches failed to process")
     
     # Merge all batch results into single document
-    return _merge_batch_results(all_results)
+    merged = _merge_batch_results(all_results)
+    _validate_merged_pages(merged, expected_pages=len(image_paths))
+    return merged
 
 
 def _process_batch_with_groq(client, image_paths: list[Path], batch_idx: int) -> dict[str, Any]:
@@ -514,6 +521,42 @@ def _merge_batch_results(batch_results: list[dict[str, Any]]) -> dict[str, Any]:
     
     logger.info("Merged %d batches into %d total pages", len(batch_results), len(merged["pages"]))
     return merged
+
+
+def _validate_merged_pages(content: dict[str, Any], expected_pages: int) -> None:
+    """Ensure merged Groq result contains a complete contiguous page set."""
+    pages = content.get("pages", [])
+    page_numbers: list[int] = []
+    for page in pages:
+        raw_page_number = page.get("page_number")
+        if raw_page_number is None:
+            continue
+        try:
+            page_numbers.append(int(raw_page_number))
+        except (TypeError, ValueError) as exc:
+            raise GroqConversionError(
+                f"Groq output has invalid page number: {raw_page_number!r}"
+            ) from exc
+
+    if len(page_numbers) != len(set(page_numbers)):
+        raise GroqConversionError(f"Groq output has duplicate pages: {page_numbers}")
+
+    expected = set(range(1, expected_pages + 1))
+    actual = set(page_numbers)
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected)
+
+    if missing or extra:
+        logger.error(
+            "Groq page validation failed. expected=%s actual=%s missing=%s extra=%s",
+            sorted(expected),
+            sorted(actual),
+            missing,
+            extra,
+        )
+        raise GroqConversionError(
+            f"Groq output incomplete (missing pages: {missing}, extra pages: {extra})"
+        )
 
 
 def _create_docx_from_content(content: dict[str, Any], output_path: Path) -> None:

@@ -16,7 +16,13 @@ from telegram.ext import (
 )
 
 from ..config.settings import settings
-from .handlers import document_handler, process_queue_handler, start_handler
+from .handlers import (
+    document_handler,
+    photo_handler,
+    process_queue_handler,
+    start_handler,
+    transliteration_handler,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +43,11 @@ def build_application() -> Application:
         .build()
     )
     application.add_handler(CommandHandler("start", start_handler))
+    application.add_handler(CallbackQueryHandler(transliteration_handler, pattern=r"^translit:"))
     # Keep legacy callback handler for old buttons
     application.add_handler(CallbackQueryHandler(process_queue_handler))
-    doc_filter = filters.Document.FileExtension("doc") | filters.Document.FileExtension("pdf")
-    application.add_handler(MessageHandler(doc_filter, document_handler))
+    application.add_handler(MessageHandler(filters.Document.ALL, document_handler))
+    application.add_handler(MessageHandler(filters.PHOTO, photo_handler))
     application.add_error_handler(_error_handler)
     return application
 
