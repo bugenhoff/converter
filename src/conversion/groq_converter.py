@@ -152,13 +152,54 @@ def _pdf_bytes_to_images(pdf_bytes: bytes) -> list[Image.Image]:
 
 
 def _process_pil_images_with_groq(images: list[Image.Image]) -> dict[str, Any]:
-    """Process PIL Images with adaptive Groq batching strategy."""
+    """Process PIL Images with simple fixed-size batching (no adaptive logic)."""
+    if not images:
+        raise GroqConversionError("No images to process")
 
-    merged = _process_images_with_adaptive_strategy(
-        images,
-        _process_pil_batch_with_groq,
+    client = groq.Groq(api_key=settings.groq_api_key)
+    batch_size = max(1, settings.groq_batch_size)
+    all_results: list[dict[str, Any]] = []
+
+    logger.info(
+        "Simple Groq scheduler started: pages=%d batch_size=%d",
+        len(images),
+        batch_size,
     )
-    _validate_merged_pages(merged, expected_pages=len(images))
+
+    for batch_num, start in enumerate(range(0, len(images), batch_size)):
+        batch_images = images[start : start + batch_size]
+        start_page = start + 1
+        end_page = start + len(batch_images)
+
+        logger.info(
+            "Groq request %d/%d: pages=%d-%d count=%d",
+            batch_num + 1,
+            -(-len(images) // batch_size),  # ceil division
+            start_page,
+            end_page,
+            len(batch_images),
+        )
+
+        try:
+            result = _process_pil_batch_with_groq(
+                client,
+                batch_images,
+                start_page,
+                batch_num,
+                settings.groq_image_max_side,
+            )
+            all_results.append(result)
+        except Exception as exc:
+            raise GroqConversionError(
+                f"Groq request failed for pages {start_page}-{end_page}: {exc}"
+            ) from exc
+
+    merged = _merge_batch_results(all_results)
+    logger.info(
+        "Simple Groq scheduler completed: requests=%d final_pages=%d",
+        len(all_results),
+        len(merged.get("pages", [])),
+    )
     return merged
 
 
@@ -402,16 +443,7 @@ def _create_docx_bytes_from_content(content: dict[str, Any]) -> bytes:
             return ' '.join(str(item) for item in value if item)
         return str(value) if value else ""
     
-    # Add title if present
-    title = content.get("title")
-    if title:
-        title_text = safe_text(title).strip()
-        if title_text:
-            title_para = doc.add_heading(title_text, level=1)
-            title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            logger.info("Added document title: %s", title_text[:50])
-    
-    # Process each page using existing functions
+    # Title comes from page sections — no separate heading to avoid duplication
     pages = content.get("pages", [])
     logger.info("Processing %d pages for DOCX creation", len(pages))
     
@@ -774,17 +806,8 @@ def _create_docx_from_content(content: dict[str, Any], output_path: Path) -> Non
         return str(value) if value else ""
     
     doc = Document()
-    
-    # Add title if present
-    title = content.get("title")
-    if title:
-        title_text = safe_text(title).strip()
-        if title_text:
-            title_para = doc.add_heading(title_text, level=1)
-            title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            logger.info("Added document title: %s", title_text[:50])
-    
-    # Process each page
+
+    # Title comes from page sections — no separate heading to avoid duplication
     pages = content.get("pages", [])
     logger.info("Processing %d pages for DOCX creation", len(pages))
     
