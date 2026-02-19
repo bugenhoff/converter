@@ -60,7 +60,7 @@ class QueuedFile:
 
     memory_handle: MemoryHandle
     original_name: str
-    file_type: str  # 'doc', 'pdf' or 'image'
+    file_type: str  # 'doc', 'docx', 'pdf' or 'image'
     user_id: int
     message_id: int
     file_size: int
@@ -386,6 +386,8 @@ class FileQueueManager:
                     self._convert_doc_from_bytes,
                     queued_file.memory_handle.get_bytes(),
                 )
+            if queued_file.file_type == "docx":
+                return queued_file.memory_handle.get_bytes()
             if queued_file.file_type == "image":
                 return await asyncio.to_thread(
                     self._convert_image_from_bytes,

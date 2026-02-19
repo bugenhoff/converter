@@ -1,382 +1,101 @@
-root@Bugenhoff:~/converter# systemctl status converter
-● converter.service - Document Converter
-     Loaded: loaded (/etc/systemd/system/converter.service; enabled; preset: enabled)
-     Active: active (running) since Fri 2026-02-06 06:47:15 UTC; 1 week 6 days ago
-   Main PID: 3743424 (python)
-      Tasks: 4 (limit: 629145)
-     Memory: 114.0M (peak: 386.5M swap: 55.3M swap peak: 86.7M)
-        CPU: 5min 52.405s
-     CGroup: /system.slice/converter.service
-             └─3743424 /root/converter/.venv/bin/python /root/converter/bot.py
-
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Page 12: processing 4 sections
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Page 13: processing 4 sections
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Page 14: processing 6 sections
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Page 15: processing 3 sections
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] DOCX document created in memory: 43015 bytes
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Memory-based LLM conversion completed for 388-son buyruq.pdf: 43015 b>
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Conversion finished for 388-son buyruq.pdf, result: 43015 bytes
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Converted 388-son buyruq.pdf (43015 bytes) for user 575927473
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Successfully sent 1/1 files to user 575927473
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Memory stats - Current: 0 MB, Peak: 8 MB, Files in memory: 0, Disk fa>
-
-root@Bugenhoff:~/converter# journalctl -u converter -n 500
-Feb 19 09:22:57 Bugenhoff python[3743424]: [INFO] User 1568055571 (@Unknown) performed action: upload_file: 388-son buy>
-Feb 19 09:22:58 Bugenhoff python[3743424]: [INFO] Loaded file 388-son buyruq.pdf (8585916 bytes) for user 1568055571 en>
-Feb 19 09:22:58 Bugenhoff python[3743424]: [INFO] Started 10s timer for user 1568055571 (queue=1)
-Feb 19 09:23:08 Bugenhoff python[3743424]: [INFO] Batch window elapsed for user 1568055571 (waited 10.00s)
-Feb 19 09:23:08 Bugenhoff python[3743424]: [INFO] Processing 1 file(s) for user 1568055571
-Feb 19 09:23:08 Bugenhoff python[3743424]: [INFO] Starting processing loop for 1 files
-Feb 19 09:23:08 Bugenhoff python[3743424]: [INFO] Processing file 1/1: 388-son buyruq.pdf
-Feb 19 09:23:08 Bugenhoff python[3743424]: [INFO] Progress notification sent for 388-son buyruq.pdf
-Feb 19 09:23:08 Bugenhoff python[3743424]: [INFO] Starting conversion for 388-son buyruq.pdf (pdf, 8585916 bytes)
-Feb 19 09:23:08 Bugenhoff python[3743424]: [INFO] Converting PDF bytes to DOCX in memory: 388-son buyruq.pdf (8585916 b>
-Feb 19 09:23:23 Bugenhoff python[3743424]: [INFO] Extracted 15 page images from memory, sending to Groq LLM
-Feb 19 09:23:23 Bugenhoff python[3743424]: [INFO] Processing 15 images in 5 batches
-Feb 19 09:23:23 Bugenhoff python[3743424]: [INFO] Processing batch 1/5 with 3 images
-Feb 19 09:23:43 Bugenhoff python[3743424]: [INFO] Raw Groq response for batch 1: {
-Feb 19 09:23:43 Bugenhoff python[3743424]: "title": "O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDAGI IJTIMOIY HIMOYA MIL>
-Feb 19 09:23:43 Bugenhoff python[3743424]:     "pages": [
-Feb 19 09:23:43 Bugenhoff python[3743424]:         {
-Feb 19 09:23:43 Bugenhoff python[3743424]:             "page_number": 1,
-Feb 19 09:23:43 Bugenhoff python[3743424]:             "sections": [
-Feb 19 09:23:43 Bugenhoff python[3743424]:                 {
-Feb 19 09:23:43 Bugenhoff python[3743424]:                     "type": "header_row",
-Feb 19 09:23:43 Bugenhoff python[3743424]:                     "content": "O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDA>
-Feb 19 09:23:43 Bugenhoff python[3743424]:                     "formatting": {
-Feb 19 09:23:43 Bugenhoff python[3743424]:                         "bold": false,
-Feb 19 09:23:43 Bugenhoff python[3743424]:                         "color...
-Feb 19 09:23:43 Bugenhoff python[3743424]: [INFO] Processing batch 2/5 with 3 images
-Feb 19 09:24:03 Bugenhoff python[3743424]: [INFO] Raw Groq response for batch 2: {
-Feb 19 09:24:03 Bugenhoff python[3743424]: "title": "Malaka Talablari",
-Feb 19 09:24:03 Bugenhoff python[3743424]:     "pages": [
-Feb 19 09:24:03 Bugenhoff python[3743424]:         {
-Feb 19 09:24:03 Bugenhoff python[3743424]:             "page_number": 4,
-Feb 19 09:24:03 Bugenhoff python[3743424]:             "sections": [
-Feb 19 09:24:03 Bugenhoff python[3743424]:                 {
-Feb 19 09:24:03 Bugenhoff python[3743424]:                     "type": "paragraph",
-Feb 19 09:24:03 Bugenhoff python[3743424]:                     "content": "8. Ijro nazorati bo'limi (J. Eshboyev) ushbu>
-Feb 19 09:24:03 Bugenhoff python[3743424]: [INFO] Processing batch 3/5 with 3 images
-Feb 19 09:24:11 Bugenhoff python[3743424]: [INFO] Raw Groq response for batch 3: {
-Feb 19 09:24:11 Bugenhoff python[3743424]: "title": "LAVOZIM MAJBURIYATLARI",
-Feb 19 09:24:11 Bugenhoff python[3743424]:     "pages": [
-Feb 19 09:24:11 Bugenhoff python[3743424]:         {
-Feb 19 09:24:11 Bugenhoff python[3743424]:             "page_number": 7,
-Feb 19 09:24:11 Bugenhoff python[3743424]:             "sections": [
-Feb 19 09:24:11 Bugenhoff python[3743424]:                 {
-Feb 19 09:24:11 Bugenhoff python[3743424]:                     "type": "table",
-Feb 19 09:24:11 Bugenhoff python[3743424]:                     "content": "\nTalablar nomi\tLavozim nomi va unga qo'yil>
-Feb 19 09:24:11 Bugenhoff python[3743424]:                     "formatting": {
-Feb 19 09:24:11 Bugenhoff python[3743424]:                         "bold": false,
-Feb 19 09:24:11 Bugenhoff python[3743424]:                         "color": "black",
-Feb 19 09:24:11 Bugenhoff python[3743424]:                         "alignment": "left",
-Feb 19 09:24:11 Bugenhoff python[3743424]:                         "font_size": "normal"
-Feb 19 09:24:11 Bugenhoff python[3743424]:                   ...
-Feb 19 09:24:11 Bugenhoff python[3743424]: [INFO] Processing batch 4/5 with 3 images
-Feb 19 09:24:19 Bugenhoff python[3743424]: [INFO] Raw Groq response for batch 4: {
-Feb 19 09:24:19 Bugenhoff python[3743424]: "title": "document title",
-Feb 19 09:24:19 Bugenhoff python[3743424]:     "pages": [
-Feb 19 09:24:19 Bugenhoff python[3743424]:         {
-Feb 19 09:24:19 Bugenhoff python[3743424]:             "page_number": 10,
-Feb 19 09:24:19 Bugenhoff python[3743424]:             "sections": [
-Feb 19 09:24:19 Bugenhoff python[3743424]:                 {
-Feb 19 09:24:19 Bugenhoff python[3743424]:                     "type": "paragraph",
-Feb 19 09:24:19 Bugenhoff python[3743424]:                     "content": "bolalar uchun qisqa va uzoq muddatli rivojla>
-Feb 19 09:24:19 Bugenhoff python[3743424]: [INFO] Processing batch 5/5 with 3 images
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Raw Groq response for batch 5: {
-Feb 19 09:24:27 Bugenhoff python[3743424]: "title": "Tarbiatchining lavozim majburiyatlari",
-Feb 19 09:24:27 Bugenhoff python[3743424]:     "pages": [
-Feb 19 09:24:27 Bugenhoff python[3743424]:         {
-Feb 19 09:24:27 Bugenhoff python[3743424]:             "page_number": 13,
-Feb 19 09:24:27 Bugenhoff python[3743424]:             "sections": [
-Feb 19 09:24:27 Bugenhoff python[3743424]:                 {
-Feb 19 09:24:27 Bugenhoff python[3743424]:                     "type": "paragraph",
-Feb 19 09:24:27 Bugenhoff python[3743424]:                     "content": "amaldagi qonunchilik hujjatlariga muvofiq o'>
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Merged 5 batches into 12 total pages
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Added document title: O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDAGI >
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Processing 12 pages for DOCX creation
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Page 1: processing 11 sections
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Page 2: processing 2 sections
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Page 4: processing 101 sections
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Page 7: processing 11 sections
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Page 8: processing 3 sections
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Page 9: processing 4 sections
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Page 10: processing 5 sections
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Page 11: processing 4 sections
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Page 12: processing 4 sections
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Page 13: processing 4 sections
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Page 14: processing 7 sections
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Page 15: processing 4 sections
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] DOCX document created in memory: 42101 bytes
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Memory-based LLM conversion completed for 388-son buyruq.pdf: 42101 b>
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Conversion finished for 388-son buyruq.pdf, result: 42101 bytes
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Converted 388-son buyruq.pdf (42101 bytes) for user 1568055571
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] User 1568055571 (@Unknown) performed action: upload_file: 388-son buy>
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Successfully sent 1/1 files to user 1568055571
-Feb 19 09:24:27 Bugenhoff python[3743424]: [INFO] Memory stats - Current: 0 MB, Peak: 8 MB, Files in memory: 0, Disk fa>
-Feb 19 09:24:28 Bugenhoff python[3743424]: [INFO] Loaded file 388-son buyruq.pdf (8585916 bytes) for user 1568055571 en>
-Feb 19 09:24:28 Bugenhoff python[3743424]: [INFO] Started 10s timer for user 1568055571 (queue=1)
-Feb 19 09:24:38 Bugenhoff python[3743424]: [INFO] Batch window elapsed for user 1568055571 (waited 10.00s)
-Feb 19 09:24:38 Bugenhoff python[3743424]: [INFO] Processing 1 file(s) for user 1568055571
-Feb 19 09:24:39 Bugenhoff python[3743424]: [INFO] Starting processing loop for 1 files
-Feb 19 09:24:39 Bugenhoff python[3743424]: [INFO] Processing file 1/1: 388-son buyruq.pdf
-Feb 19 09:24:39 Bugenhoff python[3743424]: [INFO] Progress notification sent for 388-son buyruq.pdf
-Feb 19 09:24:39 Bugenhoff python[3743424]: [INFO] Starting conversion for 388-son buyruq.pdf (pdf, 8585916 bytes)
-Feb 19 09:24:39 Bugenhoff python[3743424]: [INFO] Converting PDF bytes to DOCX in memory: 388-son buyruq.pdf (8585916 b>
-Feb 19 09:24:53 Bugenhoff python[3743424]: [INFO] Extracted 15 page images from memory, sending to Groq LLM
-Feb 19 09:24:53 Bugenhoff python[3743424]: [INFO] Processing 15 images in 5 batches
-Feb 19 09:24:53 Bugenhoff python[3743424]: [INFO] Processing batch 1/5 with 3 images
-Feb 19 09:25:13 Bugenhoff python[3743424]: [INFO] Raw Groq response for batch 1: {
-Feb 19 09:25:13 Bugenhoff python[3743424]: "title": "O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDAGI IJTIMOIY HIMOYA MIL>
-Feb 19 09:25:13 Bugenhoff python[3743424]:     "pages": [
-Feb 19 09:25:13 Bugenhoff python[3743424]:         {
-Feb 19 09:25:13 Bugenhoff python[3743424]:             "page_number": 1,
-Feb 19 09:25:13 Bugenhoff python[3743424]:             "sections": [
-Feb 19 09:25:13 Bugenhoff python[3743424]:                 {
-Feb 19 09:25:13 Bugenhoff python[3743424]:                     "type": "header_row",
-Feb 19 09:25:13 Bugenhoff python[3743424]:                     "content": "O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDA>
-Feb 19 09:25:13 Bugenhoff python[3743424]:                     "formatting": {
-Feb 19 09:25:13 Bugenhoff python[3743424]:                         "bold": false,
-Feb 19 09:25:13 Bugenhoff python[3743424]:                         "color...
-Feb 19 09:25:13 Bugenhoff python[3743424]: [INFO] Processing batch 2/5 with 3 images
-Feb 19 09:25:19 Bugenhoff python[3743424]: [INFO] Raw Groq response for batch 2: {
-Feb 19 09:25:19 Bugenhoff python[3743424]: "title": "Malaka Talablari",
-Feb 19 09:25:19 Bugenhoff python[3743424]:     "pages": [
-Feb 19 09:25:19 Bugenhoff python[3743424]:         {
-Feb 19 09:25:19 Bugenhoff python[3743424]:             "page_number": 4,
-Feb 19 09:25:19 Bugenhoff python[3743424]:             "sections": [
-Feb 19 09:25:19 Bugenhoff python[3743424]:                 {
-Feb 19 09:25:19 Bugenhoff python[3743424]:                     "type": "paragraph",
-Feb 19 09:25:19 Bugenhoff python[3743424]:                     "content": "8. Ijro nazorati bo'limi (J. Eshboyev) ushbu>
-Feb 19 09:25:19 Bugenhoff python[3743424]: [INFO] Processing batch 3/5 with 3 images
-Feb 19 09:25:31 Bugenhoff python[3743424]: [INFO] Raw Groq response for batch 3: {
-Feb 19 09:25:31 Bugenhoff python[3743424]: "title": "LAVOZIM MAJBURIYATLARI",
-Feb 19 09:25:31 Bugenhoff python[3743424]:     "pages": [
-Feb 19 09:25:31 Bugenhoff python[3743424]:         {
-Feb 19 09:25:31 Bugenhoff python[3743424]:             "page_number": 7,
-Feb 19 09:25:31 Bugenhoff python[3743424]:             "sections": [
-Feb 19 09:25:31 Bugenhoff python[3743424]:                 {
-Feb 19 09:25:31 Bugenhoff python[3743424]:                     "type": "table",
-Feb 19 09:25:31 Bugenhoff python[3743424]:                     "content": "\nTalablar nomi\tLavozim nomi va unga qo'yil>
-Feb 19 09:25:31 Bugenhoff python[3743424]:                     "formatting": {
-Feb 19 09:25:31 Bugenhoff python[3743424]:                         "bold": false,
-Feb 19 09:25:31 Bugenhoff python[3743424]:                         "color": "black",
-Feb 19 09:25:31 Bugenhoff python[3743424]:                         "alignment": "left",
-Feb 19 09:25:31 Bugenhoff python[3743424]:                         "font_size": "normal"
-Feb 19 09:25:31 Bugenhoff python[3743424]:                   ...
-Feb 19 09:25:31 Bugenhoff python[3743424]: [INFO] Processing batch 4/5 with 3 images
-Feb 19 09:25:38 Bugenhoff python[3743424]: [INFO] Raw Groq response for batch 4: {
-Feb 19 09:25:38 Bugenhoff python[3743424]: "title": "document title (batch 1 only)",
-Feb 19 09:25:38 Bugenhoff python[3743424]:     "pages": [
-Feb 19 09:25:38 Bugenhoff python[3743424]:         {
-Feb 19 09:25:38 Bugenhoff python[3743424]:             "page_number": 10,
-Feb 19 09:25:38 Bugenhoff python[3743424]:             "sections": [
-Feb 19 09:25:38 Bugenhoff python[3743424]:                 {
-Feb 19 09:25:38 Bugenhoff python[3743424]:                     "type": "paragraph",
-Feb 19 09:25:38 Bugenhoff python[3743424]:                     "content": "bolalar uchun qisqa va uzoq muddatli rivojla>
-Feb 19 09:25:38 Bugenhoff python[3743424]: [INFO] Processing batch 5/5 with 3 images
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Raw Groq response for batch 5: {
-Feb 19 09:25:46 Bugenhoff python[3743424]: "title": "Tarbiatchining lavozim majburiyatlari",
-Feb 19 09:25:46 Bugenhoff python[3743424]:     "pages": [
-Feb 19 09:25:46 Bugenhoff python[3743424]:         {
-Feb 19 09:25:46 Bugenhoff python[3743424]:             "page_number": 13,
-Feb 19 09:25:46 Bugenhoff python[3743424]:             "sections": [
-Feb 19 09:25:46 Bugenhoff python[3743424]:                 {
-Feb 19 09:25:46 Bugenhoff python[3743424]:                     "type": "paragraph",
-Feb 19 09:25:46 Bugenhoff python[3743424]:                     "content": "amaldagi qonunchilik hujjatlariga muvofiq o'>
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Merged 5 batches into 13 total pages
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Added document title: O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDAGI >
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Processing 13 pages for DOCX creation
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Page 1: processing 10 sections
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Page 4: processing 9 sections
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Page 5: processing 2 sections
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Page 6: processing 1 sections
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Page 7: processing 13 sections
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Page 8: processing 10 sections
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Page 9: processing 11 sections
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Page 10: processing 5 sections
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Page 11: processing 4 sections
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Page 12: processing 4 sections
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Page 13: processing 4 sections
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Page 14: processing 5 sections
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Page 15: processing 3 sections
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] DOCX document created in memory: 42849 bytes
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Memory-based LLM conversion completed for 388-son buyruq.pdf: 42849 b>
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Conversion finished for 388-son buyruq.pdf, result: 42849 bytes
-Feb 19 09:25:46 Bugenhoff python[3743424]: [INFO] Converted 388-son buyruq.pdf (42849 bytes) for user 1568055571
-Feb 19 09:25:47 Bugenhoff python[3743424]: [INFO] Successfully sent 1/1 files to user 1568055571
-Feb 19 09:25:47 Bugenhoff python[3743424]: [INFO] Memory stats - Current: 0 MB, Peak: 8 MB, Files in memory: 0, Disk fa>
-Feb 19 09:32:25 Bugenhoff python[3743424]: [INFO] User 1568055571 (@Unknown) performed action: upload_file: 388-son buy>
-Feb 19 09:32:26 Bugenhoff python[3743424]: [INFO] Loaded file 388-son buyruq.pdf (8585916 bytes) for user 1568055571 en>
-Feb 19 09:32:26 Bugenhoff python[3743424]: [INFO] Started 10s timer for user 1568055571 (queue=1)
-Feb 19 09:32:36 Bugenhoff python[3743424]: [INFO] Batch window elapsed for user 1568055571 (waited 10.00s)
-Feb 19 09:32:36 Bugenhoff python[3743424]: [INFO] Processing 1 file(s) for user 1568055571
-Feb 19 09:32:36 Bugenhoff python[3743424]: [INFO] Starting processing loop for 1 files
-Feb 19 09:32:36 Bugenhoff python[3743424]: [INFO] Processing file 1/1: 388-son buyruq.pdf
-Feb 19 09:32:36 Bugenhoff python[3743424]: [INFO] Progress notification sent for 388-son buyruq.pdf
-Feb 19 09:32:36 Bugenhoff python[3743424]: [INFO] Starting conversion for 388-son buyruq.pdf (pdf, 8585916 bytes)
-Feb 19 09:32:36 Bugenhoff python[3743424]: [INFO] Converting PDF bytes to DOCX in memory: 388-son buyruq.pdf (8585916 b>
-Feb 19 09:32:51 Bugenhoff python[3743424]: [INFO] Extracted 15 page images from memory, sending to Groq LLM
-Feb 19 09:32:51 Bugenhoff python[3743424]: [INFO] Processing 15 images in 5 batches
-Feb 19 09:32:51 Bugenhoff python[3743424]: [INFO] Processing batch 1/5 with 3 images
-Feb 19 09:33:10 Bugenhoff python[3743424]: [INFO] Raw Groq response for batch 1: {
-Feb 19 09:33:10 Bugenhoff python[3743424]: "title": "O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDAGI IJTIMOIY HIMOYA MIL>
-Feb 19 09:33:10 Bugenhoff python[3743424]:   "pages": [
-Feb 19 09:33:10 Bugenhoff python[3743424]:     {
-Feb 19 09:33:10 Bugenhoff python[3743424]:       "page_number": 1,
-Feb 19 09:33:10 Bugenhoff python[3743424]:       "sections": [
-Feb 19 09:33:10 Bugenhoff python[3743424]:         {
-Feb 19 09:33:10 Bugenhoff python[3743424]:           "type": "header_row",
-Feb 19 09:33:10 Bugenhoff python[3743424]:           "content": "O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDAGI IJTIMOI>
-Feb 19 09:33:10 Bugenhoff python[3743424]:           "formatting": {
-Feb 19 09:33:10 Bugenhoff python[3743424]:             "bold": false,
-Feb 19 09:33:10 Bugenhoff python[3743424]:             "color": "black",
-Feb 19 09:33:10 Bugenhoff python[3743424]:             "alignment": "center",
-Feb 19 09:33:10 Bugenhoff python[3743424]:             "font_size": "normal"...
-Feb 19 09:33:10 Bugenhoff python[3743424]: [INFO] Processing batch 2/5 with 3 images
-Feb 19 09:33:17 Bugenhoff python[3743424]: [INFO] Raw Groq response for batch 2: {
-Feb 19 09:33:17 Bugenhoff python[3743424]: "title": "O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDAGI IJTIMOIY HIMOYA MIL>
-Feb 19 09:33:17 Bugenhoff python[3743424]:     "pages": [
-Feb 19 09:33:17 Bugenhoff python[3743424]:         {
-Feb 19 09:33:17 Bugenhoff python[3743424]:             "page_number": 4,
-Feb 19 09:33:17 Bugenhoff python[3743424]:             "sections": [
-Feb 19 09:33:17 Bugenhoff python[3743424]:                 {
-Feb 19 09:33:17 Bugenhoff python[3743424]:                     "type": "paragraph",
-Feb 19 09:33:17 Bugenhoff python[3743424]:                     "content": "8. Ijro nazorati bo'limi (J. Eshboyev) ushbu>
-Feb 19 09:33:17 Bugenhoff python[3743424]:                     "f...
-Feb 19 09:33:17 Bugenhoff python[3743424]: [INFO] Processing batch 3/5 with 3 images
-Feb 19 09:33:22 Bugenhoff python[3743424]: [ERROR] Failed to process batch 3: Groq API request failed: Error code: 400 >
-Feb 19 09:33:22 Bugenhoff python[3743424]: [INFO] Processing batch 4/5 with 3 images
-Feb 19 09:33:29 Bugenhoff python[3743424]: [INFO] Raw Groq response for batch 4: {
-Feb 19 09:33:29 Bugenhoff python[3743424]: "title": "document title",
-Feb 19 09:33:29 Bugenhoff python[3743424]:     "pages": [
-Feb 19 09:33:29 Bugenhoff python[3743424]:         {
-Feb 19 09:33:29 Bugenhoff python[3743424]:             "page_number": 10,
-Feb 19 09:33:29 Bugenhoff python[3743424]:             "sections": [
-Feb 19 09:33:29 Bugenhoff python[3743424]:                 {
-Feb 19 09:33:29 Bugenhoff python[3743424]:                     "type": "paragraph",
-Feb 19 09:33:29 Bugenhoff python[3743424]:                     "content": "bolalar uchun qisqa va uzoq muddatli rivojla>
-Feb 19 09:33:29 Bugenhoff python[3743424]: [INFO] Processing batch 5/5 with 3 images
-Feb 19 09:33:49 Bugenhoff python[3743424]: [INFO] Raw Groq response for batch 5: {
-Feb 19 09:33:49 Bugenhoff python[3743424]: "title": "Tarbiatchining lavozim majburiyatlari",
-Feb 19 09:33:49 Bugenhoff python[3743424]:     "pages": [
-Feb 19 09:33:49 Bugenhoff python[3743424]:         {
-Feb 19 09:33:49 Bugenhoff python[3743424]:             "page_number": 13,
-Feb 19 09:33:49 Bugenhoff python[3743424]:             "sections": [
-Feb 19 09:33:49 Bugenhoff python[3743424]:                 {
-Feb 19 09:33:49 Bugenhoff python[3743424]:                     "type": "paragraph",
-Feb 19 09:33:49 Bugenhoff python[3743424]:                     "content": "amaldagi qonunchilik hujjatlariga muvofiq o'>
-Feb 19 09:33:49 Bugenhoff python[3743424]: [INFO] Merged 4 batches into 9 total pages
-Feb 19 09:33:49 Bugenhoff python[3743424]: [INFO] Added document title: O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDAGI >
-Feb 19 09:33:49 Bugenhoff python[3743424]: [INFO] Processing 9 pages for DOCX creation
-Feb 19 09:33:49 Bugenhoff python[3743424]: [INFO] Page 1: processing 11 sections
-Feb 19 09:33:49 Bugenhoff python[3743424]: [INFO] Page 4: processing 8 sections
-Feb 19 09:33:49 Bugenhoff python[3743424]: [INFO] Page 5: processing 2 sections
-Feb 19 09:33:49 Bugenhoff python[3743424]: [INFO] Page 6: processing 1 sections
-Feb 19 09:33:49 Bugenhoff python[3743424]: [INFO] Page 10: processing 5 sections
-Feb 19 09:33:49 Bugenhoff python[3743424]: [INFO] Page 11: processing 4 sections
-Feb 19 09:33:49 Bugenhoff python[3743424]: [INFO] Page 12: processing 4 sections
-Feb 19 09:33:49 Bugenhoff python[3743424]: [INFO] Page 13: processing 4 sections
-Feb 19 09:33:49 Bugenhoff python[3743424]: [INFO] Page 14: processing 2 sections
-Feb 19 09:33:49 Bugenhoff python[3743424]: [INFO] DOCX document created in memory: 41674 bytes
-Feb 19 09:33:49 Bugenhoff python[3743424]: [INFO] Memory-based LLM conversion completed for 388-son buyruq.pdf: 41674 b>
-Feb 19 09:33:49 Bugenhoff python[3743424]: [INFO] Conversion finished for 388-son buyruq.pdf, result: 41674 bytes
-Feb 19 09:33:49 Bugenhoff python[3743424]: [INFO] Converted 388-son buyruq.pdf (41674 bytes) for user 1568055571
-Feb 19 09:33:49 Bugenhoff python[3743424]: [INFO] Successfully sent 1/1 files to user 1568055571
-Feb 19 09:33:49 Bugenhoff python[3743424]: [INFO] Memory stats - Current: 0 MB, Peak: 8 MB, Files in memory: 0, Disk fa>
-Feb 19 09:51:40 Bugenhoff python[3743424]: [INFO] User 575927473 (@Bugenhoff) performed action: upload_file: 388-son bu>
-Feb 19 09:51:41 Bugenhoff python[3743424]: [INFO] Loaded file 388-son buyruq.pdf (8585916 bytes) for user 575927473 ent>
-Feb 19 09:51:41 Bugenhoff python[3743424]: [INFO] Started 10s timer for user 575927473 (queue=1)
-Feb 19 09:51:51 Bugenhoff python[3743424]: [INFO] Batch window elapsed for user 575927473 (waited 10.00s)
-Feb 19 09:51:51 Bugenhoff python[3743424]: [INFO] Processing 1 file(s) for user 575927473
-Feb 19 09:51:51 Bugenhoff python[3743424]: [INFO] Starting processing loop for 1 files
-Feb 19 09:51:51 Bugenhoff python[3743424]: [INFO] Processing file 1/1: 388-son buyruq.pdf
-Feb 19 09:51:51 Bugenhoff python[3743424]: [INFO] Progress notification sent for 388-son buyruq.pdf
-Feb 19 09:51:51 Bugenhoff python[3743424]: [INFO] Starting conversion for 388-son buyruq.pdf (pdf, 8585916 bytes)
-Feb 19 09:51:51 Bugenhoff python[3743424]: [INFO] Converting PDF bytes to DOCX in memory: 388-son buyruq.pdf (8585916 b>
-Feb 19 09:52:05 Bugenhoff python[3743424]: [INFO] Extracted 15 page images from memory, sending to Groq LLM
-Feb 19 09:52:05 Bugenhoff python[3743424]: [INFO] Processing 15 images in 5 batches
-Feb 19 09:52:05 Bugenhoff python[3743424]: [INFO] Processing batch 1/5 with 3 images
-Feb 19 09:52:13 Bugenhoff python[3743424]: [INFO] Raw Groq response for batch 1: {
-Feb 19 09:52:13 Bugenhoff python[3743424]: "title": "O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDAGI IJTIMOIY HIMOYA MIL>
-Feb 19 09:52:13 Bugenhoff python[3743424]:   "pages": [
-Feb 19 09:52:13 Bugenhoff python[3743424]:     {
-Feb 19 09:52:13 Bugenhoff python[3743424]:       "page_number": 1,
-Feb 19 09:52:13 Bugenhoff python[3743424]:       "sections": [
-Feb 19 09:52:13 Bugenhoff python[3743424]:         {
-Feb 19 09:52:13 Bugenhoff python[3743424]:           "type": "header_row",
-Feb 19 09:52:13 Bugenhoff python[3743424]:           "content": "O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDAGI IJTIMOI>
-Feb 19 09:52:13 Bugenhoff python[3743424]:           "formatting": {
-Feb 19 09:52:13 Bugenhoff python[3743424]:             "bold": false,
-Feb 19 09:52:13 Bugenhoff python[3743424]:             "color": "black",
-Feb 19 09:52:13 Bugenhoff python[3743424]:             "alignment": "center",
-Feb 19 09:52:13 Bugenhoff python[3743424]:             "font_size": "normal"...
-Feb 19 09:52:13 Bugenhoff python[3743424]: [INFO] Processing batch 2/5 with 3 images
-Feb 19 09:52:32 Bugenhoff python[3743424]: [INFO] Raw Groq response for batch 2: {
-Feb 19 09:52:32 Bugenhoff python[3743424]: "title": "Malaka Talablari",
-Feb 19 09:52:32 Bugenhoff python[3743424]:     "pages": [
-Feb 19 09:52:32 Bugenhoff python[3743424]:         {
-Feb 19 09:52:32 Bugenhoff python[3743424]:             "page_number": 4,
-Feb 19 09:52:32 Bugenhoff python[3743424]:             "sections": [
-Feb 19 09:52:32 Bugenhoff python[3743424]:                 {
-Feb 19 09:52:32 Bugenhoff python[3743424]:                     "type": "paragraph",
-Feb 19 09:52:32 Bugenhoff python[3743424]:                     "content": "8. Ijro nazorati bo'limi (J. Eshboyev) ushbu>
-Feb 19 09:52:32 Bugenhoff python[3743424]: [INFO] Processing batch 3/5 with 3 images
-Feb 19 09:52:44 Bugenhoff python[3743424]: [INFO] Raw Groq response for batch 3: {
-Feb 19 09:52:44 Bugenhoff python[3743424]: "title": "LAVOZIM MAJBURIYATLARI",
-Feb 19 09:52:44 Bugenhoff python[3743424]:     "pages": [
-Feb 19 09:52:44 Bugenhoff python[3743424]:         {
-Feb 19 09:52:44 Bugenhoff python[3743424]:             "page_number": 7,
-Feb 19 09:52:44 Bugenhoff python[3743424]:             "sections": [
-Feb 19 09:52:44 Bugenhoff python[3743424]:                 {
-Feb 19 09:52:44 Bugenhoff python[3743424]:                     "type": "table",
-Feb 19 09:52:44 Bugenhoff python[3743424]:                     "content": "\nTalablar nomi\tLavozim nomi va unga qo'yil>
-Feb 19 09:52:44 Bugenhoff python[3743424]:                     "formatting": {
-Feb 19 09:52:44 Bugenhoff python[3743424]:                         "bold": false,
-Feb 19 09:52:44 Bugenhoff python[3743424]:                         "color": "black",
-Feb 19 09:52:44 Bugenhoff python[3743424]:                         "alignment": "left",
-Feb 19 09:52:44 Bugenhoff python[3743424]:                         "font_size": "normal"
-Feb 19 09:52:44 Bugenhoff python[3743424]:                   ...
-Feb 19 09:52:44 Bugenhoff python[3743424]: [INFO] Processing batch 4/5 with 3 images
-Feb 19 09:52:51 Bugenhoff python[3743424]: [INFO] Raw Groq response for batch 4: {
-Feb 19 09:52:51 Bugenhoff python[3743424]: "title": "document title (batch 1 only)",
-Feb 19 09:52:51 Bugenhoff python[3743424]:     "pages": [
-Feb 19 09:52:51 Bugenhoff python[3743424]:         {
-Feb 19 09:52:51 Bugenhoff python[3743424]:             "page_number": 10,
-Feb 19 09:52:51 Bugenhoff python[3743424]:             "sections": [
-Feb 19 09:52:51 Bugenhoff python[3743424]:                 {
-Feb 19 09:52:51 Bugenhoff python[3743424]:                     "type": "paragraph",
-Feb 19 09:52:51 Bugenhoff python[3743424]:                     "content": "bolalar uchun qisqa va uzoq muddatli rivojla>
-Feb 19 09:52:51 Bugenhoff python[3743424]: [INFO] Processing batch 5/5 with 3 images
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Raw Groq response for batch 5: {
-Feb 19 09:52:59 Bugenhoff python[3743424]: "title": "Tarbiatchining lavozim majburiyatlari",
-Feb 19 09:52:59 Bugenhoff python[3743424]:     "pages": [
-Feb 19 09:52:59 Bugenhoff python[3743424]:         {
-Feb 19 09:52:59 Bugenhoff python[3743424]:             "page_number": 13,
-Feb 19 09:52:59 Bugenhoff python[3743424]:             "sections": [
-Feb 19 09:52:59 Bugenhoff python[3743424]:                 {
-Feb 19 09:52:59 Bugenhoff python[3743424]:                     "type": "paragraph",
-Feb 19 09:52:59 Bugenhoff python[3743424]:                     "content": "amaldagi qonunchilik hujjatlariga muvofiq o'>
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Merged 5 batches into 13 total pages
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Added document title: O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDAGI >
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Processing 13 pages for DOCX creation
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Page 1: processing 11 sections
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Page 2: processing 3 sections
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Page 3: processing 3 sections
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Page 4: processing 101 sections
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Page 7: processing 14 sections
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Page 8: processing 6 sections
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Page 9: processing 12 sections
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Page 10: processing 5 sections
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Page 11: processing 4 sections
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Page 12: processing 4 sections
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Page 13: processing 4 sections
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Page 14: processing 6 sections
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Page 15: processing 3 sections
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] DOCX document created in memory: 43015 bytes
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Memory-based LLM conversion completed for 388-son buyruq.pdf: 43015 b>
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Conversion finished for 388-son buyruq.pdf, result: 43015 bytes
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Converted 388-son buyruq.pdf (43015 bytes) for user 575927473
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Successfully sent 1/1 files to user 575927473
-Feb 19 09:52:59 Bugenhoff python[3743424]: [INFO] Memory stats - Current: 0 MB, Peak: 8 MB, Files in memory: 0, Disk fa>
-lines 333-358/358 (END)
+Feb 19 11:12:27 Bugenhoff systemd[1]: converter.service: Consumed 5min 53.089s CPU time, 386.5M memory peak, 86.7M memo>
+Feb 19 11:12:27 Bugenhoff systemd[1]: Started converter.service - Document Converter.
+Feb 19 11:12:28 Bugenhoff python[2664816]: [INFO] Application started
+Feb 19 11:12:39 Bugenhoff python[2664816]: [INFO] User 575927473 (@Bugenhoff) performed action: upload_file: 388-son bu>
+Feb 19 11:12:40 Bugenhoff python[2664816]: [INFO] Loaded file 388-son buyruq.pdf (8585916 bytes) for user 575927473 ent>
+Feb 19 11:12:40 Bugenhoff python[2664816]: [INFO] Started 10s timer for user 575927473 (queue=1)
+Feb 19 11:12:50 Bugenhoff python[2664816]: [INFO] Batch window elapsed for user 575927473 (waited 10.00s)
+Feb 19 11:12:50 Bugenhoff python[2664816]: [INFO] Processing 1 file(s) for user 575927473
+Feb 19 11:12:50 Bugenhoff python[2664816]: [INFO] Starting processing loop for 1 files
+Feb 19 11:12:50 Bugenhoff python[2664816]: [INFO] Processing file 1/1: 388-son buyruq.pdf
+Feb 19 11:12:50 Bugenhoff python[2664816]: [INFO] Progress notification sent for 388-son buyruq.pdf
+Feb 19 11:12:50 Bugenhoff python[2664816]: [INFO] Starting conversion for 388-son buyruq.pdf (pdf, 8585916 bytes)
+Feb 19 11:12:50 Bugenhoff python[2664816]: [INFO] Converting PDF bytes to DOCX in memory: 388-son buyruq.pdf (8585916 b>
+Feb 19 11:13:04 Bugenhoff python[2664816]: [INFO] Extracted 15 page images from memory, sending to Groq LLM
+Feb 19 11:13:04 Bugenhoff python[2664816]: [INFO] Processing 15 images in 5 batches
+Feb 19 11:13:04 Bugenhoff python[2664816]: [INFO] Processing batch 1/5 with 3 images
+Feb 19 11:13:11 Bugenhoff python[2664816]: [INFO] Raw Groq response for batch 1: {
+Feb 19 11:13:11 Bugenhoff python[2664816]: "title": "O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDAGI IJTIMOIY HIMOYA MIL>
+Feb 19 11:13:11 Bugenhoff python[2664816]:     "pages": [
+Feb 19 11:13:11 Bugenhoff python[2664816]:         {
+Feb 19 11:13:11 Bugenhoff python[2664816]:             "page_number": 1,
+Feb 19 11:13:11 Bugenhoff python[2664816]:             "sections": [
+Feb 19 11:13:11 Bugenhoff python[2664816]:                 {
+Feb 19 11:13:11 Bugenhoff python[2664816]:                     "type": "header_row",
+Feb 19 11:13:11 Bugenhoff python[2664816]:                     "content": "O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDA>
+Feb 19 11:13:11 Bugenhoff python[2664816]:                     "formatting": {
+Feb 19 11:13:11 Bugenhoff python[2664816]:                         "bold": false,
+Feb 19 11:13:11 Bugenhoff python[2664816]:                         "color...
+Feb 19 11:13:11 Bugenhoff python[2664816]: [INFO] Processing batch 2/5 with 3 images
+Feb 19 11:13:17 Bugenhoff python[2664816]: [INFO] Raw Groq response for batch 2: {
+Feb 19 11:13:17 Bugenhoff python[2664816]: "title": "Malaka Talablari",
+Feb 19 11:13:17 Bugenhoff python[2664816]:     "pages": [
+Feb 19 11:13:17 Bugenhoff python[2664816]:         {
+Feb 19 11:13:17 Bugenhoff python[2664816]:             "page_number": 4,
+Feb 19 11:13:17 Bugenhoff python[2664816]:             "sections": [
+Feb 19 11:13:17 Bugenhoff python[2664816]:                 {
+Feb 19 11:13:17 Bugenhoff python[2664816]:                     "type": "paragraph",
+Feb 19 11:13:17 Bugenhoff python[2664816]:                     "content": "8. Ijro nazorati bo'limi (J. Eshboyev) ushbu>
+Feb 19 11:13:17 Bugenhoff python[2664816]: [INFO] Processing batch 3/5 with 3 images
+Feb 19 11:13:25 Bugenhoff python[2664816]: [INFO] Raw Groq response for batch 3: {
+Feb 19 11:13:25 Bugenhoff python[2664816]: "title": "LAVOZIM MAJBURIYATLARI",
+Feb 19 11:13:25 Bugenhoff python[2664816]:     "pages": [
+Feb 19 11:13:25 Bugenhoff python[2664816]:         {
+Feb 19 11:13:25 Bugenhoff python[2664816]:             "page_number": 7,
+Feb 19 11:13:25 Bugenhoff python[2664816]:             "sections": [
+Feb 19 11:13:25 Bugenhoff python[2664816]:                 {
+Feb 19 11:13:25 Bugenhoff python[2664816]:                     "type": "table",
+Feb 19 11:13:25 Bugenhoff python[2664816]:                     "content": "\nTalablar nomi\tLavozim nomi va unga qo'yil>
+Feb 19 11:13:25 Bugenhoff python[2664816]:                     "formatting": {
+Feb 19 11:13:25 Bugenhoff python[2664816]:                         "bold": false,
+Feb 19 11:13:25 Bugenhoff python[2664816]:                         "color": "black",
+Feb 19 11:13:25 Bugenhoff python[2664816]:                         "alignment": "left",
+Feb 19 11:13:25 Bugenhoff python[2664816]:                         "font_size": "normal"
+Feb 19 11:13:25 Bugenhoff python[2664816]:                   ...
+Feb 19 11:13:25 Bugenhoff python[2664816]: [INFO] Processing batch 4/5 with 3 images
+Feb 19 11:13:32 Bugenhoff python[2664816]: [INFO] Raw Groq response for batch 4: {
+Feb 19 11:13:32 Bugenhoff python[2664816]: "title": "document title (batch 1 only)",
+Feb 19 11:13:32 Bugenhoff python[2664816]:     "pages": [
+Feb 19 11:13:32 Bugenhoff python[2664816]:         {
+Feb 19 11:13:32 Bugenhoff python[2664816]:             "page_number": 10,
+Feb 19 11:13:32 Bugenhoff python[2664816]:             "sections": [
+Feb 19 11:13:32 Bugenhoff python[2664816]:                 {
+Feb 19 11:13:32 Bugenhoff python[2664816]:                     "type": "paragraph",
+Feb 19 11:13:32 Bugenhoff python[2664816]:                     "content": "bolalar uchun qisqa va uzoq muddatli rivojla>
+Feb 19 11:13:32 Bugenhoff python[2664816]: [INFO] Processing batch 5/5 with 3 images
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Raw Groq response for batch 5: {
+Feb 19 11:13:40 Bugenhoff python[2664816]: "title": "Tarbiatchining lavozim majburiyatlari",
+Feb 19 11:13:40 Bugenhoff python[2664816]:     "pages": [
+Feb 19 11:13:40 Bugenhoff python[2664816]:         {
+Feb 19 11:13:40 Bugenhoff python[2664816]:             "page_number": 13,
+Feb 19 11:13:40 Bugenhoff python[2664816]:             "sections": [
+Feb 19 11:13:40 Bugenhoff python[2664816]:                 {
+Feb 19 11:13:40 Bugenhoff python[2664816]:                     "type": "paragraph",
+Feb 19 11:13:40 Bugenhoff python[2664816]:                     "content": "amaldagi qonunchilik hujjatlariga muvofiq o'>
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Merged 5 batches into 15 total pages
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Added document title: O'ZBEKISTON RESPUBLIKASI PREZIDENTI HUZURIDAGI >
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Processing 15 pages for DOCX creation
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 1: processing 11 sections
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 2: processing 2 sections
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 3: processing 2 sections
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 4: processing 4 sections
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 5: processing 1 sections
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 6: processing 1 sections
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 7: processing 13 sections
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 8: processing 4 sections
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 9: processing 7 sections
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 10: processing 5 sections
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 11: processing 4 sections
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 12: processing 4 sections
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 13: processing 4 sections
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 14: processing 6 sections
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Page 15: processing 3 sections
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] DOCX document created in memory: 42884 bytes
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Memory-based LLM conversion completed for 388-son buyruq.pdf: 42884 b>
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Conversion finished for 388-son buyruq.pdf, result: 42884 bytes
+Feb 19 11:13:40 Bugenhoff python[2664816]: [INFO] Converted 388-son buyruq.pdf (42884 bytes) for user 575927473
+Feb 19 11:13:41 Bugenhoff python[2664816]: [INFO] Successfully sent 1/1 files to user 575927473
+Feb 19 11:13:41 Bugenhoff python[2664816]: [INFO] Memory stats - Current: 0 MB, Peak: 8 MB, Files in memory: 0, Disk fa>
+Feb 19 11:14:34 Bugenhoff python[2664816]: [INFO] User 575927473 (@Bugenhoff) performed action: transliteration_request>
+Feb 19 11:14:52 Bugenhoff python[2664816]: [INFO] User 575927473 (@Bugenhoff) performed action: upload_file: 388-son bu>
+lines 75-100/100 (END)

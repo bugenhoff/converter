@@ -1,6 +1,6 @@
 # Telegram DOC→DOCX Converter Bot
 
-Этот репозиторий содержит Telegram-бота, который принимает `.doc`, `.pdf` и изображения (`.png/.jpg/...`), конвертирует их в `.docx` и отсылает результат пользователю.
+Этот репозиторий содержит Telegram-бота, который принимает `.doc`, `.docx`, `.pdf` и изображения (`.png/.jpg/...`), конвертирует их в `.docx` и отсылает результат пользователю.
 
 ## Быстрый старт
 
@@ -23,6 +23,10 @@
    OCR_LANGUAGES=rus+eng+uzb+uzb_cyrl
    GROQ_API_KEY=your_groq_api_key_here
    GROQ_MODEL=llama-3.2-11b-vision-preview
+   GROQ_MAX_TOKENS=8000
+   GROQ_BATCH_SIZE=3
+   GROQ_IMAGE_MAX_SIDE=800
+   GROQ_PDF_IMAGE_DPI=200
    TEMP_DIR=./tmp
    LOG_LEVEL=INFO
    ```
@@ -36,7 +40,7 @@
 
 ## Сценарий работы бота
 
-1. Пользователь отправляет один или несколько документов (`.doc`, `.pdf`) или изображений (включая `photo` из Telegram).
+1. Пользователь отправляет один или несколько документов (`.doc`, `.docx`, `.pdf`) или изображений (включая `photo` из Telegram).
 2. Каждый файл скачивается, помещается в очередь и автоматически обрабатывается после тайм-окна (10 секунд).
 3. Бот отправляет готовый `.docx` с подписью `✅ source -> result`.
 4. Под каждым отправленным `.docx` появляется inline-кнопка `Транслитерация` (латиница -> кириллица, uz).
@@ -44,7 +48,7 @@
 
 ## Что делает бот
 
-- Принимает `.doc`, `.pdf`, изображения (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.tif`, `.tiff`, `.webp`) и Telegram `photo`.
+- Принимает `.doc`, `.docx`, `.pdf`, изображения (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.tif`, `.tiff`, `.webp`) и Telegram `photo`.
 - Для PDF использует надежный pipeline: `pdf2docx` -> OCR (`ocrmypdf` + `pdf2docx`) -> Groq fallback.
 - Для изображений конвертирует image -> PDF -> OCR -> DOCX.
 - Поддерживает транслитерацию узбекской латиницы в кириллицу для готового DOCX через inline-кнопку.
@@ -76,3 +80,4 @@ pytest
 - **PDF обработка**: Бот использует deterministic-конвертацию в приоритете; Groq применяется только как последний fallback.  
 - OCR использует Tesseract. Настройте `TESSDATA_PREFIX` и `OCR_LANGUAGES`, чтобы перечислить доступные языки (по умолчанию `rus+eng+uzb+uzb_cyrl`).
 - **Транслитерация**: по кнопке `Транслитерация` создается новый `<name>_cyrillic.docx`. Обработка выполняется для текстовых слоев DOCX (paragraph/table/header/footer).
+- **Groq limits**: лимиты ответа и размера vision-запроса настраиваются через `GROQ_MAX_TOKENS`, `GROQ_BATCH_SIZE`, `GROQ_IMAGE_MAX_SIDE`, `GROQ_PDF_IMAGE_DPI`.

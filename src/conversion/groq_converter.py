@@ -87,6 +87,14 @@ def convert_pdf_bytes_to_docx_via_groq(pdf_bytes: bytes, original_name: str) -> 
         raise GroqConversionError("GROQ_API_KEY is not configured")
     
     logger.info("Converting PDF bytes to DOCX in memory: %s (%d bytes)", original_name, len(pdf_bytes))
+    logger.info(
+        "Groq config: model=%s max_tokens=%d batch_size=%d max_side=%d dpi=%d",
+        settings.groq_model,
+        settings.groq_max_tokens,
+        settings.groq_batch_size,
+        settings.groq_image_max_side,
+        settings.groq_pdf_image_dpi,
+    )
     
     try:
         # Convert PDF bytes to images in memory
@@ -118,11 +126,15 @@ def _pdf_bytes_to_images(pdf_bytes: bytes) -> list[Image.Image]:
         # Use pdf2image to convert bytes directly to PIL Images
         images = convert_from_bytes(
             pdf_bytes,
-            dpi=200,  # Higher DPI for better quality
+            dpi=settings.groq_pdf_image_dpi,
             fmt='PNG',
             use_pdftocairo=True  # Better quality rendering
         )
-        logger.debug("Converted PDF bytes to %d PIL images", len(images))
+        logger.debug(
+            "Converted PDF bytes to %d PIL images (dpi=%d)",
+            len(images),
+            settings.groq_pdf_image_dpi,
+        )
         return images
         
     except Exception as e:
@@ -134,18 +146,27 @@ def _process_pil_images_with_groq(images: list[Image.Image]) -> dict[str, Any]:
     
     client = groq.Groq(api_key=settings.groq_api_key)
     
-    # Split into batches of 3 images
-    batches = [images[i:i+3] for i in range(0, len(images), 3)]
-    logger.info("Processing %d images in %d batches", len(images), len(batches))
+    batch_size = settings.groq_batch_size
+    batches = [images[i:i + batch_size] for i in range(0, len(images), batch_size)]
+    logger.info(
+        "Processing %d images in %d batches (batch_size=%d, max_tokens=%d, max_side=%d)",
+        len(images),
+        len(batches),
+        batch_size,
+        settings.groq_max_tokens,
+        settings.groq_image_max_side,
+    )
     
     all_results = []
+    page_offset = 1
     
     for batch_idx, batch_images in enumerate(batches):
         logger.info("Processing batch %d/%d with %d images", batch_idx + 1, len(batches), len(batch_images))
         
         try:
-            batch_result = _process_pil_batch_with_groq(client, batch_images, batch_idx)
+            batch_result = _process_pil_batch_with_groq(client, batch_images, page_offset, batch_idx)
             all_results.append(batch_result)
+            page_offset += len(batch_images)
         except Exception as e:
             logger.error("Failed to process batch %d: %s", batch_idx + 1, e)
             raise GroqConversionError(
@@ -161,17 +182,19 @@ def _process_pil_images_with_groq(images: list[Image.Image]) -> dict[str, Any]:
     return merged
 
 
-def _process_pil_batch_with_groq(client, pil_images: list[Image.Image], batch_idx: int) -> dict[str, Any]:
+def _process_pil_batch_with_groq(
+    client,
+    pil_images: list[Image.Image],
+    start_page: int,
+    batch_idx: int,
+) -> dict[str, Any]:
     """Process a batch of PIL Images with Groq LLM."""
-    
-    # Calculate page numbers for this batch
-    start_page = batch_idx * 3 + 1
     
     image_content = []
     for img in pil_images:
         # Resize image if too large to save tokens
-        if max(img.size) > 800:
-            ratio = 800 / max(img.size)
+        if max(img.size) > settings.groq_image_max_side:
+            ratio = settings.groq_image_max_side / max(img.size)
             new_size = tuple(int(dim * ratio) for dim in img.size)
             img = img.resize(new_size, Image.Resampling.LANCZOS)
         
@@ -247,7 +270,7 @@ def _process_pil_batch_with_groq(client, pil_images: list[Image.Image], batch_id
                 }
             ],
             response_format={"type": "json_object"},
-            max_tokens=8000,
+            max_tokens=settings.groq_max_tokens,
             temperature=0.1
         )
         
@@ -330,9 +353,9 @@ def _create_docx_bytes_from_content(content: dict[str, Any]) -> bytes:
 def _pdf_to_images(pdf_path: Path, output_dir: Path) -> list[Path]:
     """Convert PDF pages to PNG images."""
     try:
-        # Use higher DPI for better OCR quality
+        # Use configurable DPI for image extraction quality
         subprocess.run([
-            "pdftoppm", "-png", "-r", "200", 
+            "pdftoppm", "-png", "-r", str(settings.groq_pdf_image_dpi),
             str(pdf_path), str(output_dir / "page")
         ], check=True, capture_output=True)
         
@@ -352,18 +375,27 @@ def _process_images_with_groq(image_paths: list[Path]) -> dict[str, Any]:
     
     client = groq.Groq(api_key=settings.groq_api_key)
     
-    # Split into batches of 3 images (reduced from 5 for better quality)
-    batches = [image_paths[i:i+3] for i in range(0, len(image_paths), 3)]
-    logger.info("Processing %d images in %d batches", len(image_paths), len(batches))
+    batch_size = settings.groq_batch_size
+    batches = [image_paths[i:i + batch_size] for i in range(0, len(image_paths), batch_size)]
+    logger.info(
+        "Processing %d images in %d batches (batch_size=%d, max_tokens=%d, max_side=%d)",
+        len(image_paths),
+        len(batches),
+        batch_size,
+        settings.groq_max_tokens,
+        settings.groq_image_max_side,
+    )
     
     all_results = []
+    page_offset = 1
     
     for batch_idx, batch_images in enumerate(batches):
         logger.info("Processing batch %d/%d with %d images", batch_idx + 1, len(batches), len(batch_images))
         
         try:
-            batch_result = _process_batch_with_groq(client, batch_images, batch_idx)
+            batch_result = _process_batch_with_groq(client, batch_images, page_offset, batch_idx)
             all_results.append(batch_result)
+            page_offset += len(batch_images)
         except Exception as e:
             logger.error("Failed to process batch %d: %s", batch_idx + 1, e)
             raise GroqConversionError(
@@ -379,19 +411,22 @@ def _process_images_with_groq(image_paths: list[Path]) -> dict[str, Any]:
     return merged
 
 
-def _process_batch_with_groq(client, image_paths: list[Path], batch_idx: int) -> dict[str, Any]:
+def _process_batch_with_groq(
+    client,
+    image_paths: list[Path],
+    start_page: int,
+    batch_idx: int,
+) -> dict[str, Any]:
     """Process a single batch of images (up to 5) with Groq LLM."""
     
-    # Calculate actual page numbers for this batch (3 images per batch)
-    start_page = batch_idx * 3 + 1
+    # Keep explicit page range in prompt to reduce page-number drift.
     page_numbers = list(range(start_page, start_page + len(image_paths)))
     image_content = []
     for img_path in image_paths:
         # Resize image if too large to save tokens (reduced resolution)
         with Image.open(img_path) as img:
-            # Resize to max 800px on longest side (reduced from 1024)
-            if max(img.size) > 800:
-                ratio = 800 / max(img.size) 
+            if max(img.size) > settings.groq_image_max_side:
+                ratio = settings.groq_image_max_side / max(img.size)
                 new_size = tuple(int(dim * ratio) for dim in img.size)
                 img = img.resize(new_size, Image.Resampling.LANCZOS)
                 
@@ -479,7 +514,7 @@ def _process_batch_with_groq(client, image_paths: list[Path], batch_idx: int) ->
                 }
             ],
             response_format={"type": "json_object"},
-            max_tokens=8000,  # Maximum allowed for this model
+            max_tokens=settings.groq_max_tokens,
             temperature=0.1
         )
         

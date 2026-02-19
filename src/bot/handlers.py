@@ -28,7 +28,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     text = (
         "Привет! 👋\n\n"
-        "Пришли мне один или несколько файлов в формате .doc, .pdf или изображение "
+        "Пришли мне один или несколько файлов в формате .doc, .docx, .pdf или изображение "
         "(.png/.jpg и т.д.) — "
         "я автоматически конвертирую их в .docx с сохранением форматирования.\n\n"
         "🕐 Просто отправляй файлы — я жду 10 секунд после каждого файла, "
@@ -41,6 +41,8 @@ def _detect_file_type(file_name: str) -> str | None:
     lower_name = file_name.lower()
     if lower_name.endswith(".pdf"):
         return "pdf"
+    if lower_name.endswith(".docx"):
+        return "docx"
     if lower_name.endswith(".doc"):
         return "doc"
     if lower_name.endswith(SUPPORTED_IMAGE_EXTENSIONS):
@@ -103,7 +105,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     document = update.message.document
     if not document or not document.file_name:
         await update.message.reply_text(
-            "Пожалуйста, отправь файл в формате .doc, .pdf или изображение (.png/.jpg)."
+            "Пожалуйста, отправь файл в формате .doc, .docx, .pdf или изображение (.png/.jpg)."
         )
         return
     
@@ -114,7 +116,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     file_type = _detect_file_type(document.file_name)
     if not file_type:
         await update.message.reply_text(
-            "Я умею конвертировать только `.doc`, `.pdf` и изображения "
+            "Я умею конвертировать только `.doc`, `.docx`, `.pdf` и изображения "
             "(`.png`, `.jpg`, `.jpeg`, `.bmp`, `.tif`, `.tiff`, `.webp`)."
         )
         return

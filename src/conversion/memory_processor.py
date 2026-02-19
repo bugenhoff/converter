@@ -211,7 +211,7 @@ def convert_file_in_memory(
     
     Args:
         file_data: File content as bytes or file-like object
-        file_type: 'doc', 'pdf', or 'image'
+        file_type: 'doc', 'docx', 'pdf', or 'image'
         original_name: Original filename for logging
         
     Returns:
@@ -222,6 +222,8 @@ def convert_file_in_memory(
             return _convert_pdf_in_memory(file_data, original_name)
         elif file_type == 'doc':
             return _convert_doc_in_memory(file_data, original_name)
+        elif file_type == 'docx':
+            return _convert_docx_in_memory(file_data)
         elif file_type == 'image':
             return _convert_image_in_memory(file_data, original_name)
         else:
@@ -234,26 +236,40 @@ def convert_file_in_memory(
 
 
 def _convert_pdf_in_memory(file_data: Union[bytes, BinaryIO], original_name: str) -> Optional[bytes]:
-    """Convert PDF to DOCX in memory using Groq + pdf2image."""
+    """Convert PDF to DOCX in memory using reliability-first converter pipeline."""
     try:
-        from ..conversion.groq_converter import convert_pdf_bytes_to_docx_via_groq
+        from ..conversion.converter import convert_pdf_to_docx
         
         # Ensure we have bytes
         if hasattr(file_data, 'read'):
             pdf_bytes = file_data.read()
         else:
             pdf_bytes = file_data
-            
-        # Convert using memory-optimized Groq converter
-        docx_bytes = convert_pdf_bytes_to_docx_via_groq(pdf_bytes, original_name)
-        return docx_bytes
-        
-    except ImportError:
-        logger.warning("Groq converter not available for %s, falling back to disk", original_name)
-        return None
+
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_input:
+            tmp_input.write(pdf_bytes)
+            tmp_input_path = Path(tmp_input.name)
+
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                converted_path = convert_pdf_to_docx(tmp_input_path, Path(tmp_dir))
+                if converted_path and converted_path.exists():
+                    with converted_path.open('rb') as f:
+                        return f.read()
+                return None
+        finally:
+            if tmp_input_path.exists():
+                tmp_input_path.unlink()
     except Exception as e:
         logger.error("PDF memory conversion failed for %s: %s", original_name, e)
         return None
+
+
+def _convert_docx_in_memory(file_data: Union[bytes, BinaryIO]) -> Optional[bytes]:
+    """Pass DOCX through without conversion (used for transliteration workflow)."""
+    if hasattr(file_data, 'read'):
+        return file_data.read()
+    return file_data
 
 
 def _convert_doc_in_memory(file_data: Union[bytes, BinaryIO], original_name: str) -> Optional[bytes]:

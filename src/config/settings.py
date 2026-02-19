@@ -16,6 +16,29 @@ def _load_env(key: str, default: str | None = None, required: bool = False) -> s
     return value  # type: ignore[no-any-return]
 
 
+def _load_env_int(
+    key: str,
+    default: int,
+    *,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> int:
+    raw = os.environ.get(key)
+    if raw is None or not raw.strip():
+        value = default
+    else:
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise RuntimeError(f"Mandatory integer environment variable {key} is invalid") from exc
+
+    if minimum is not None and value < minimum:
+        raise RuntimeError(f"{key} must be >= {minimum}")
+    if maximum is not None and value > maximum:
+        raise RuntimeError(f"{key} must be <= {maximum}")
+    return value
+
+
 @dataclass
 class Settings:
     telegram_token: str
@@ -24,6 +47,10 @@ class Settings:
     ocr_languages: str
     groq_api_key: str
     groq_model: str
+    groq_max_tokens: int
+    groq_batch_size: int
+    groq_image_max_side: int
+    groq_pdf_image_dpi: int
     temp_dir: Path
     log_level: str
     allowed_users_only: bool
@@ -55,6 +82,10 @@ settings = Settings(
     ocr_languages=_load_env("OCR_LANGUAGES", default="rus+eng+uzb+uzb_cyrl"),
     groq_api_key=_load_env("GROQ_API_KEY", default=""),
     groq_model=_load_env("GROQ_MODEL", default="llama-3.2-11b-vision-preview"),
+    groq_max_tokens=_load_env_int("GROQ_MAX_TOKENS", default=8000, minimum=256, maximum=32768),
+    groq_batch_size=_load_env_int("GROQ_BATCH_SIZE", default=3, minimum=1, maximum=10),
+    groq_image_max_side=_load_env_int("GROQ_IMAGE_MAX_SIDE", default=800, minimum=256, maximum=3000),
+    groq_pdf_image_dpi=_load_env_int("GROQ_PDF_IMAGE_DPI", default=200, minimum=72, maximum=600),
     temp_dir=Path(_load_env("TEMP_DIR", default="./tmp")),
     log_level=_load_env("LOG_LEVEL", default="INFO"),
     allowed_users_only=_load_env("ALLOWED_USERS_ONLY", default="true").lower() == "true",
