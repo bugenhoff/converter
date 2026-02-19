@@ -294,12 +294,25 @@ def _build_transcription_prompt(expected_pages: list[int]) -> str:
     page_numbers = ", ".join(str(page) for page in expected_pages)
     return f"""You are a strict OCR transcription engine.
 
-Transcribe ALL visible text from each provided page.
+Transcribe ALL visible text from each provided page and preserve basic formatting.
 
 Return ONLY valid JSON with this schema:
 {{
   "pages": [
-    {{"page_number": <int>, "text": "<full page text with \\n line breaks>"}}
+    {{
+      "page_number": <int>,
+      "blocks": [
+        {{
+          "text": "<line text>",
+          "bold": <true|false>,
+          "color": "<black|green|blue|red|dark_blue|orange>",
+          "font_size": "<small|normal|large>",
+          "alignment": "<left|center|right|justified>",
+          "left_indent_pts": <number>,
+          "first_line_indent_pts": <number>
+        }}
+      ]
+    }}
   ]
 }}
 
@@ -308,8 +321,9 @@ Rules:
 2) page_number values must be exactly: [{page_numbers}].
 3) Do not summarize, explain, translate, or omit text.
 4) Keep original language and line order from the page.
-5) Preserve line breaks inside "text".
-6) Do not return Markdown, code fences, or any extra keys outside JSON.
+5) Put one visible line per one block in "blocks".
+6) If uncertain about style, use: bold=false, color=black, font_size=normal, alignment=left, indents=0.
+7) Do not return Markdown, code fences, or any extra keys outside JSON.
 """
 
 
@@ -345,14 +359,103 @@ def _normalized_text_length(text: str) -> int:
     return len("".join(text.split()))
 
 
+def _sanitize_line_text(text: str) -> str:
+    compact = " ".join(text.replace("\t", " ").split())
+    return compact.strip()
+
+
+def _normalize_formatting_block(raw_block: dict[str, Any]) -> dict[str, Any]:
+    text = _sanitize_line_text(_safe_text(raw_block.get("text", "")))
+    if not text:
+        return {}
+
+    alignment = _safe_text(raw_block.get("alignment", "left")).strip().lower() or "left"
+    if alignment not in {"left", "center", "right", "justified"}:
+        alignment = "left"
+
+    color = _safe_text(raw_block.get("color", "black")).strip().lower() or "black"
+    if color not in {"black", "green", "blue", "red", "dark_blue", "orange"}:
+        color = "black"
+
+    font_size = _safe_text(raw_block.get("font_size", "normal")).strip().lower() or "normal"
+    if font_size not in {"small", "normal", "large"}:
+        font_size = "normal"
+
+    def safe_pts(value: Any) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        if parsed < 0:
+            return 0.0
+        return min(parsed, 120.0)
+
+    return {
+        "text": text,
+        "bold": bool(raw_block.get("bold", False)),
+        "color": color,
+        "font_size": font_size,
+        "alignment": alignment,
+        "left_indent_pts": safe_pts(raw_block.get("left_indent_pts", 0)),
+        "first_line_indent_pts": safe_pts(raw_block.get("first_line_indent_pts", 0)),
+    }
+
+
+def _extract_page_blocks(page: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_blocks = page.get("blocks", [])
+    blocks: list[dict[str, Any]] = []
+    if isinstance(raw_blocks, list):
+        for raw_block in raw_blocks:
+            if isinstance(raw_block, dict):
+                normalized = _normalize_formatting_block(raw_block)
+                if normalized:
+                    blocks.append(normalized)
+    if blocks:
+        return blocks
+
+    fallback_text = _extract_page_text(page)
+    fallback_blocks: list[dict[str, Any]] = []
+    for line in fallback_text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        sanitized = _sanitize_line_text(line)
+        if not sanitized:
+            continue
+        fallback_blocks.append(
+            {
+                "text": sanitized,
+                "bold": False,
+                "color": "black",
+                "font_size": "normal",
+                "alignment": "left",
+                "left_indent_pts": 0.0,
+                "first_line_indent_pts": 0.0,
+            }
+        )
+    return fallback_blocks
+
+
 def _extract_page_text(page: dict[str, Any]) -> str:
+    raw_blocks = page.get("blocks", [])
+    if isinstance(raw_blocks, list):
+        block_lines = []
+        for raw_block in raw_blocks:
+            if isinstance(raw_block, dict):
+                normalized_block = _normalize_formatting_block(raw_block)
+                if normalized_block:
+                    block_lines.append(normalized_block["text"])
+        if block_lines:
+            return "\n".join(block_lines)
+
     direct_text = _safe_text(page.get("text", "")).strip()
     if direct_text:
-        return direct_text
+        sanitized_lines = [
+            _sanitize_line_text(line)
+            for line in direct_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        ]
+        return "\n".join(line for line in sanitized_lines if line)
 
     direct_content = _safe_text(page.get("content", "")).strip()
     if direct_content:
-        return direct_content
+        return _sanitize_line_text(direct_content)
 
     sections = page.get("sections", [])
     if not isinstance(sections, list):
@@ -372,15 +475,15 @@ def _extract_page_text(page: dict[str, Any]) -> str:
             headers = table_data.get("headers", [])
             rows = table_data.get("rows", [])
             if isinstance(headers, list) and headers:
-                parts.append(" | ".join(_safe_text(header).strip() for header in headers))
+                parts.append(" | ".join(_sanitize_line_text(_safe_text(header)) for header in headers))
             if isinstance(rows, list):
                 for row in rows:
                     if isinstance(row, list):
-                        row_text = " | ".join(_safe_text(cell).strip() for cell in row)
+                        row_text = " | ".join(_sanitize_line_text(_safe_text(cell)) for cell in row)
                         if row_text.strip():
                             parts.append(row_text)
 
-    return "\n".join(part for part in parts if part.strip())
+    return "\n".join(_sanitize_line_text(part) for part in parts if _sanitize_line_text(part))
 
 
 def _normalize_batch_result(result: dict[str, Any]) -> dict[str, Any]:
@@ -402,9 +505,11 @@ def _normalize_batch_result(result: dict[str, Any]) -> dict[str, Any]:
             ) from exc
 
         page_text = _extract_page_text(raw_page)
+        page_blocks = _extract_page_blocks(raw_page)
         normalized_page = dict(raw_page)
         normalized_page["page_number"] = page_number
         normalized_page["text"] = page_text
+        normalized_page["blocks"] = page_blocks
         normalized_pages.append(normalized_page)
 
     return {
@@ -512,36 +617,38 @@ def _write_transcription_pages_to_doc(doc, content: dict[str, Any]) -> None:
         raise GroqConversionError("Groq content has invalid pages structure")
 
     logger.info("Writing %d page(s) to DOCX", len(pages))
-    for index, page in enumerate(pages):
+    written_pages = 0
+    for page in pages:
         if not isinstance(page, dict):
             continue
-        page_number = page.get("page_number", index + 1)
-        page_text = _extract_page_text(page)
+        page_number = page.get("page_number", written_pages + 1)
+        page_blocks = _extract_page_blocks(page)
+        if not page_blocks:
+            logger.info("Page %s skipped: empty transcription", page_number)
+            continue
         logger.info(
             "Page %s: transcription chars=%d",
             page_number,
-            _normalized_text_length(page_text),
+            _normalized_text_length("\n".join(block["text"] for block in page_blocks)),
         )
 
-        _append_page_text(doc, page_text)
-        if index < len(pages) - 1:
+        if written_pages > 0:
             doc.add_page_break()
+        _append_page_blocks(doc, page_blocks)
+        written_pages += 1
 
 
-def _append_page_text(doc, page_text: str) -> None:
-    normalized_text = page_text.replace("\r\n", "\n").replace("\r", "\n")
-    lines = normalized_text.split("\n")
-
-    wrote_any = False
-    for raw_line in lines:
-        line = raw_line.strip()
-        if not line:
+def _append_page_blocks(doc, blocks: list[dict[str, Any]]) -> None:
+    for block in blocks:
+        text = block.get("text", "")
+        if not text:
             continue
-        doc.add_paragraph(line)
-        wrote_any = True
-
-    if not wrote_any:
-        doc.add_paragraph(" ")
+        para = doc.add_paragraph()
+        run = para.add_run(text)
+        _apply_text_formatting(run, block)
+        _apply_paragraph_alignment(para, block)
+        para.paragraph_format.left_indent = Pt(float(block.get("left_indent_pts", 0.0)))
+        para.paragraph_format.first_line_indent = Pt(float(block.get("first_line_indent_pts", 0.0)))
 
 
 def _pdf_to_images(pdf_path: Path, output_dir: Path) -> list[Path]:

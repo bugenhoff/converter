@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from docx import Document
 
 from src.conversion import groq_converter
 from src.conversion.groq_converter import GroqConversionError
@@ -47,6 +48,42 @@ def test_validate_batch_pages_rejects_suspiciously_short_text():
             {"pages": [{"page_number": 1, "text": "too short"}]},
             expected_pages=[1],
         )
+
+
+def test_normalize_batch_result_keeps_blocks_and_sanitizes_spaces():
+    normalized = groq_converter._normalize_batch_result(
+        {
+            "pages": [
+                {
+                    "page_number": 1,
+                    "blocks": [
+                        {"text": "  HELLO    WORLD  ", "bold": True, "color": "green"},
+                        {"text": " ", "bold": False},
+                    ],
+                }
+            ]
+        }
+    )
+    page = normalized["pages"][0]
+    assert page["text"] == "HELLO WORLD"
+    assert len(page["blocks"]) == 1
+    assert page["blocks"][0]["bold"] is True
+    assert page["blocks"][0]["color"] == "green"
+
+
+def test_write_transcription_pages_skips_empty_pages():
+    doc = Document()
+    groq_converter._write_transcription_pages_to_doc(
+        doc,
+        {
+            "pages": [
+                {"page_number": 1, "blocks": []},
+                {"page_number": 2, "blocks": [{"text": "Line 1"}, {"text": "Line 2"}]},
+            ]
+        },
+    )
+    texts = [p.text for p in doc.paragraphs if p.text.strip()]
+    assert texts == ["Line 1", "Line 2"]
 
 
 def test_process_pil_images_with_groq_fails_on_partial_batches(monkeypatch):
