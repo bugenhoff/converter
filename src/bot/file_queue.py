@@ -54,6 +54,14 @@ def get_loading_animation(step: int) -> str:
     return frames[step % len(frames)]
 
 
+def _safe_doc_source_name(original_name: str) -> str:
+    safe_name = original_name.replace("/", "_").replace("\\", "_").strip()
+    safe_name = Path(safe_name).name or "document.doc"
+    if Path(safe_name).suffix.lower() != ".doc":
+        safe_name = f"{Path(safe_name).stem or 'document'}.doc"
+    return safe_name
+
+
 @dataclass
 class QueuedFile:
     """Represents a file in the processing queue."""
@@ -385,6 +393,7 @@ class FileQueueManager:
                 return await asyncio.to_thread(
                     self._convert_doc_from_bytes,
                     queued_file.memory_handle.get_bytes(),
+                    queued_file.original_name,
                 )
             if queued_file.file_type == "docx":
                 return queued_file.memory_handle.get_bytes()
@@ -414,21 +423,16 @@ class FileQueueManager:
             return None
 
     @staticmethod
-    def _convert_doc_from_bytes(payload: bytes) -> bytes:
-        with tempfile.NamedTemporaryFile(
-            dir=settings.temp_dir, suffix=".doc", delete=False
-        ) as tmp_input:
-            tmp_input.write(payload)
-            tmp_input_path = Path(tmp_input.name)
+    def _convert_doc_from_bytes(payload: bytes, original_name: str) -> bytes:
+        with tempfile.TemporaryDirectory(dir=settings.temp_dir) as tmp_input_dir:
+            tmp_input_path = Path(tmp_input_dir) / _safe_doc_source_name(original_name)
+            tmp_input_path.write_bytes(payload)
 
-        try:
             with tempfile.TemporaryDirectory(dir=settings.temp_dir) as tmp_output:
                 output_path = convert_doc_to_docx(
                     tmp_input_path, Path(tmp_output), settings.libreoffice_path
                 )
                 return output_path.read_bytes()
-        finally:
-            tmp_input_path.unlink(missing_ok=True)
 
     @staticmethod
     def _convert_pdf_from_bytes(payload: bytes) -> bytes:

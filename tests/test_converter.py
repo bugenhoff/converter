@@ -88,6 +88,37 @@ def test_successful_conversion_finds_libreoffice_renamed_output(tmp_path: Path, 
     assert converted.read_text() == "converted"
 
 
+def test_conversion_retries_with_explicit_docx_filter(tmp_path: Path, monkeypatch):
+    src = tmp_path / "818 24.12.2025 (1).doc"
+    src.write_text("dummy")
+
+    monkeypatch.setattr(
+        "src.conversion.converter._resolve_libreoffice_command",
+        lambda *_: ["libreoffice"],
+    )
+
+    class FakeResult:
+        def __init__(self, stdout="", stderr=""):
+            self.returncode = 0
+            self.stdout = stdout
+            self.stderr = stderr
+
+    used_targets = []
+
+    def fake_run(args, **kwargs):
+        used_targets.append(args[args.index("--convert-to") + 1])
+        if used_targets[-1] == "docx:Office Open XML Text":
+            (tmp_path / "818 24.12.2025 (1).docx").write_text("converted")
+            return FakeResult()
+        return FakeResult(stderr="Error: no export filter")
+
+    monkeypatch.setattr("src.conversion.converter.subprocess.run", fake_run)
+
+    converted = convert_doc_to_docx(src, tmp_path, "libreoffice")
+    assert converted.name == "818 24.12.2025 (1).docx"
+    assert used_targets == ["docx", "docx:Office Open XML Text"]
+
+
 def test_missing_libreoffice_output_reports_stdout_and_stderr(tmp_path: Path, monkeypatch):
     src = tmp_path / "test.doc"
     src.write_text("dummy")
@@ -107,7 +138,7 @@ def test_missing_libreoffice_output_reports_stdout_and_stderr(tmp_path: Path, mo
         lambda *_args, **_kwargs: FakeResult(),
     )
 
-    with pytest.raises(ConversionError, match="stdout=.*stderr="):
+    with pytest.raises(ConversionError, match="attempts=.*stdout=.*stderr="):
         convert_doc_to_docx(src, tmp_path / "out", "libreoffice")
 
 

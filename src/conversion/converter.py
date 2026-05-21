@@ -37,6 +37,12 @@ from ..config.settings import settings
 
 logger = logging.getLogger(__name__)
 
+DOCX_EXPORT_TARGETS = (
+    "docx",
+    "docx:Office Open XML Text",
+    "docx:MS Word 2007 XML",
+)
+
 
 class ConversionError(RuntimeError):
     """Signals that LibreOffice failed to convert the document."""
@@ -58,45 +64,60 @@ def convert_doc_to_docx(
     started_at = time.time()
     existing_outputs = {path.resolve() for path in _iter_docx_outputs(output_dir)}
 
-    command = _resolve_libreoffice_command(libreoffice_bin) + [
-        "--headless",
-        "--convert-to",
-        "docx",
-        "--outdir",
-        str(output_dir),
-        str(source_path),
-    ]
+    libreoffice_command = _resolve_libreoffice_command(libreoffice_bin)
+    attempts: list[tuple[str, subprocess.CompletedProcess[str]]] = []
+    for export_target in DOCX_EXPORT_TARGETS:
+        command = libreoffice_command + [
+            "--headless",
+            "--convert-to",
+            export_target,
+            "--outdir",
+            str(output_dir),
+            str(source_path),
+        ]
 
-    process = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-    )
-
-    if process.returncode != 0:
-        raise ConversionError(
-            "LibreOffice failed to convert document:"
-            f" exit={process.returncode}, stderr={process.stderr.strip()}"
+        process = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
         )
+        attempts.append((export_target, process))
 
-    converted_path = _find_libreoffice_output(
-        source_path=source_path,
-        output_dir=output_dir,
-        stdout=process.stdout,
-        existing_outputs=existing_outputs,
-        started_at=started_at,
-    )
+        converted_path = _find_libreoffice_output(
+            source_path=source_path,
+            output_dir=output_dir,
+            stdout=process.stdout,
+            existing_outputs=existing_outputs,
+            started_at=started_at,
+        )
+        if converted_path is not None:
+            break
+    else:
+        converted_path = None
+
     if converted_path is None:
         available = ", ".join(path.name for path in _iter_docx_outputs(output_dir)) or "none"
         raise ConversionError(
-            "LibreOffice reported success but output file is missing:"
-            f" stdout={process.stdout.strip()!r}, stderr={process.stderr.strip()!r},"
+            "LibreOffice did not produce a DOCX file:"
+            f" attempts={_format_libreoffice_attempts(attempts)},"
             f" output_dir={output_dir}, docx_files={available}"
         )
     if converted_path.stat().st_size == 0:
         raise ConversionError(f"LibreOffice produced an empty DOCX file: {converted_path}")
 
     return converted_path
+
+
+def _format_libreoffice_attempts(
+    attempts: list[tuple[str, subprocess.CompletedProcess[str]]]
+) -> str:
+    return "; ".join(
+        (
+            f"target={target!r}, exit={process.returncode}, "
+            f"stdout={process.stdout.strip()!r}, stderr={process.stderr.strip()!r}"
+        )
+        for target, process in attempts
+    )
 
 
 def _iter_docx_outputs(output_dir: Path) -> list[Path]:

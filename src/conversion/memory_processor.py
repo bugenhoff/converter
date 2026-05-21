@@ -289,36 +289,35 @@ def _convert_doc_in_memory(file_data: Union[bytes, BinaryIO], original_name: str
         else:
             doc_bytes = file_data
         
-        # LibreOffice requires disk files, so use minimal temporary storage
-        with tempfile.NamedTemporaryFile(suffix='.doc', delete=False) as tmp_input:
-            tmp_input.write(doc_bytes)
-            tmp_input_path = Path(tmp_input.name)
-        
-        try:
-            # Convert using LibreOffice
+        with tempfile.TemporaryDirectory() as tmp_input_dir:
+            tmp_input_path = Path(tmp_input_dir) / _safe_doc_source_name(original_name)
+            tmp_input_path.write_bytes(doc_bytes)
+
             with tempfile.TemporaryDirectory() as tmp_dir:
                 converted_path = convert_doc_to_docx(
                     tmp_input_path, 
                     Path(tmp_dir),
                     settings.libreoffice_path
                 )
-                
-                # Read result back to memory
+
                 if converted_path and converted_path.exists():
                     with converted_path.open('rb') as f:
                         docx_bytes = f.read()
                     return docx_bytes
                 else:
                     return None
-                    
-        finally:
-            # Clean up input file
-            if tmp_input_path.exists():
-                tmp_input_path.unlink()
                 
     except Exception as e:
         logger.error("DOC memory conversion failed for %s: %s", original_name, e)
         return None
+
+
+def _safe_doc_source_name(original_name: str) -> str:
+    safe_name = original_name.replace("/", "_").replace("\\", "_").strip()
+    safe_name = Path(safe_name).name or "document.doc"
+    if Path(safe_name).suffix.lower() != ".doc":
+        safe_name = f"{Path(safe_name).stem or 'document'}.doc"
+    return safe_name
 
 
 def _convert_image_in_memory(file_data: Union[bytes, BinaryIO], original_name: str) -> Optional[bytes]:
