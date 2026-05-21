@@ -6,6 +6,7 @@ import logging
 import os
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 import shlex
 import shutil
@@ -54,6 +55,8 @@ def convert_doc_to_docx(
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    started_at = time.time()
+    existing_outputs = {path.resolve() for path in _iter_docx_outputs(output_dir)}
 
     command = _resolve_libreoffice_command(libreoffice_bin) + [
         "--headless",
@@ -76,11 +79,88 @@ def convert_doc_to_docx(
             f" exit={process.returncode}, stderr={process.stderr.strip()}"
         )
 
-    converted_path = output_dir / f"{source_path.stem}.docx"
-    if not converted_path.exists():
-        raise ConversionError("LibreOffice reported success but output file is missing")
+    converted_path = _find_libreoffice_output(
+        source_path=source_path,
+        output_dir=output_dir,
+        stdout=process.stdout,
+        existing_outputs=existing_outputs,
+        started_at=started_at,
+    )
+    if converted_path is None:
+        available = ", ".join(path.name for path in _iter_docx_outputs(output_dir)) or "none"
+        raise ConversionError(
+            "LibreOffice reported success but output file is missing:"
+            f" stdout={process.stdout.strip()!r}, stderr={process.stderr.strip()!r},"
+            f" output_dir={output_dir}, docx_files={available}"
+        )
+    if converted_path.stat().st_size == 0:
+        raise ConversionError(f"LibreOffice produced an empty DOCX file: {converted_path}")
 
     return converted_path
+
+
+def _iter_docx_outputs(output_dir: Path) -> list[Path]:
+    """Return DOCX-like files, handling case-sensitive filesystems."""
+    if not output_dir.exists():
+        return []
+    return [
+        path
+        for path in output_dir.iterdir()
+        if path.is_file() and path.suffix.lower() == ".docx"
+    ]
+
+
+def _find_libreoffice_output(
+    *,
+    source_path: Path,
+    output_dir: Path,
+    stdout: str,
+    existing_outputs: set[Path],
+    started_at: float,
+) -> Path | None:
+    expected_path = output_dir / f"{source_path.stem}.docx"
+    if expected_path.exists():
+        return expected_path
+
+    for parsed_path in _parse_libreoffice_output_paths(stdout, output_dir):
+        if parsed_path.exists() and parsed_path.suffix.lower() == ".docx":
+            return parsed_path
+
+    docx_outputs = _iter_docx_outputs(output_dir)
+    new_outputs = [
+        path
+        for path in docx_outputs
+        if path.resolve() not in existing_outputs or path.stat().st_mtime >= started_at
+    ]
+    if not new_outputs:
+        return None
+
+    for path in new_outputs:
+        if path.stem.casefold() == source_path.stem.casefold():
+            return path
+
+    if len(new_outputs) == 1:
+        return new_outputs[0]
+
+    return max(new_outputs, key=lambda path: path.stat().st_mtime)
+
+
+def _parse_libreoffice_output_paths(stdout: str, output_dir: Path) -> list[Path]:
+    paths: list[Path] = []
+    for line in stdout.splitlines():
+        if "->" not in line:
+            continue
+        raw_path = line.split("->", 1)[1].strip()
+        if " using" in raw_path:
+            raw_path = raw_path.split(" using", 1)[0].strip()
+        raw_path = raw_path.strip("'\"")
+        if not raw_path:
+            continue
+        parsed_path = Path(raw_path)
+        if not parsed_path.is_absolute():
+            parsed_path = output_dir / parsed_path
+        paths.append(parsed_path)
+    return paths
 
 
 def convert_pdf_to_docx(source_path: Path, output_dir: Path) -> Path:

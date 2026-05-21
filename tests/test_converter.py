@@ -23,6 +23,7 @@ def test_conversion_failure_is_reported(tmp_path: Path, monkeypatch):
 
     class FakeResult:
         returncode = 1
+        stdout = ""
         stderr = "boom"
 
     def fake_run(*args, **kwargs):
@@ -45,6 +46,7 @@ def test_successful_conversion(tmp_path: Path, monkeypatch):
 
     class FakeResult:
         returncode = 0
+        stdout = ""
         stderr = ""
 
     def fake_run(*args, **kwargs):
@@ -57,6 +59,56 @@ def test_successful_conversion(tmp_path: Path, monkeypatch):
     converted = convert_doc_to_docx(src, tmp_path, "libreoffice")
     assert converted.exists()
     assert converted.suffix == ".docx"
+
+
+def test_successful_conversion_finds_libreoffice_renamed_output(tmp_path: Path, monkeypatch):
+    src = tmp_path / "input.doc"
+    src.write_text("dummy")
+    output_dir = tmp_path / "out"
+
+    monkeypatch.setattr(
+        "src.conversion.converter._resolve_libreoffice_command",
+        lambda *_: ["libreoffice"],
+    )
+
+    class FakeResult:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(*args, **kwargs):
+        output_dir.mkdir(exist_ok=True)
+        (output_dir / "unexpected-name.docx").write_text("converted")
+        return FakeResult()
+
+    monkeypatch.setattr("src.conversion.converter.subprocess.run", fake_run)
+
+    converted = convert_doc_to_docx(src, output_dir, "libreoffice")
+    assert converted == output_dir / "unexpected-name.docx"
+    assert converted.read_text() == "converted"
+
+
+def test_missing_libreoffice_output_reports_stdout_and_stderr(tmp_path: Path, monkeypatch):
+    src = tmp_path / "test.doc"
+    src.write_text("dummy")
+
+    monkeypatch.setattr(
+        "src.conversion.converter._resolve_libreoffice_command",
+        lambda *_: ["libreoffice"],
+    )
+
+    class FakeResult:
+        returncode = 0
+        stdout = "convert /tmp/test.doc -> /tmp/missing.docx using filter"
+        stderr = "warn"
+
+    monkeypatch.setattr(
+        "src.conversion.converter.subprocess.run",
+        lambda *_args, **_kwargs: FakeResult(),
+    )
+
+    with pytest.raises(ConversionError, match="stdout=.*stderr="):
+        convert_doc_to_docx(src, tmp_path / "out", "libreoffice")
 
 
 def test_convert_pdf_groq():
