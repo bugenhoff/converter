@@ -150,9 +150,9 @@ settings = Settings(
     openrouter_model=_load_env("OPENROUTER_MODEL", default="openai/gpt-6-luna"),
     # Пусто — глубина рассуждений по умолчанию у модели; none отключает их.
     openrouter_reasoning_effort=_load_env("OPENROUTER_REASONING_EFFORT", default="").strip().lower(),
-    llm_max_tokens_per_page=_load_env_int("LLM_MAX_TOKENS_PER_PAGE", default=4000, minimum=1024, maximum=32768),
+    llm_max_tokens_per_page=_load_env_int("LLM_MAX_TOKENS_PER_PAGE", default=4000, minimum=1024, maximum=131072),
     pdf_conversion_mode=_load_env("PDF_CONVERSION_MODE", default="groq_only"),
-    groq_max_tokens=_load_env_int("GROQ_MAX_TOKENS", default=12000, minimum=256, maximum=32768),
+    groq_max_tokens=_load_env_int("GROQ_MAX_TOKENS", default=12000, minimum=256, maximum=131072),
     groq_batch_size=_load_env_int("GROQ_BATCH_SIZE", default=1, minimum=1, maximum=10),
     groq_max_requests_per_document=_load_env_int(
         "GROQ_MAX_REQUESTS_PER_DOCUMENT",
