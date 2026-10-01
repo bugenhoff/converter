@@ -70,6 +70,9 @@ class Settings:
     ocr_languages: str
     groq_api_key: str
     groq_model: str
+    llm_provider: str
+    openrouter_api_key: str
+    openrouter_model: str
     pdf_conversion_mode: str
     groq_max_tokens: int
     groq_batch_size: int
@@ -88,6 +91,9 @@ class Settings:
     def __post_init__(self) -> None:
         self.temp_dir = Path(self.temp_dir).expanduser()
         self.temp_dir.mkdir(parents=True, exist_ok=True)
+
+        if self.llm_provider not in {"groq", "openrouter"}:
+            raise RuntimeError("LLM_PROVIDER must be one of: groq, openrouter")
 
         allowed_modes = {"groq_only", "groq_first", "reliability_first"}
         if self.pdf_conversion_mode not in allowed_modes:
@@ -115,6 +121,20 @@ class Settings:
             else:
                 self.allowed_user_ids = []
 
+    # Провайдер распознавания PDF. Оба отдают OpenAI-совместимый API,
+    # поэтому остальная логика (пакеты страниц, повторы) общая.
+    @property
+    def llm_model(self) -> str:
+        return self.openrouter_model if self.llm_provider == "openrouter" else self.groq_model
+
+    @property
+    def llm_api_key(self) -> str:
+        return self.openrouter_api_key if self.llm_provider == "openrouter" else self.groq_api_key
+
+    @property
+    def llm_api_key_name(self) -> str:
+        return "OPENROUTER_API_KEY" if self.llm_provider == "openrouter" else "GROQ_API_KEY"
+
 
 settings = Settings(
     telegram_token=_load_env("TELEGRAM_BOT_TOKEN", required=True),
@@ -122,7 +142,10 @@ settings = Settings(
     tessdata_prefix=_load_env("TESSDATA_PREFIX", default="/root/tesseract/tessdata/"),
     ocr_languages=_load_env("OCR_LANGUAGES", default="rus+eng+uzb+uzb_cyrl"),
     groq_api_key=_load_env("GROQ_API_KEY", default=""),
-    groq_model=_load_env("GROQ_MODEL", default="llama-3.2-11b-vision-preview"),
+    groq_model=_load_env("GROQ_MODEL", default="qwen/qwen3.8-27b"),
+    llm_provider=_load_env("LLM_PROVIDER", default="groq").strip().lower(),
+    openrouter_api_key=_load_env("OPENROUTER_API_KEY", default=""),
+    openrouter_model=_load_env("OPENROUTER_MODEL", default="openai/gpt-6-luna"),
     pdf_conversion_mode=_load_env("PDF_CONVERSION_MODE", default="groq_only"),
     groq_max_tokens=_load_env_int("GROQ_MAX_TOKENS", default=12000, minimum=256, maximum=32768),
     groq_batch_size=_load_env_int("GROQ_BATCH_SIZE", default=1, minimum=1, maximum=10),

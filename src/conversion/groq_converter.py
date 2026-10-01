@@ -26,11 +26,17 @@ except ImportError:
     Document = None
     convert_from_bytes = None
 
+try:
+    import openai
+except ImportError:
+    openai = None
+
 from ..config.settings import settings
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
 _DEFAULT_MIN_TEXT_CHARS_PER_PAGE = 20
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
 class GroqConversionError(RuntimeError):
@@ -44,14 +50,29 @@ class _GroqTask:
     retries_left: int
 
 
+def _llm_client():
+    """Клиент выбранного провайдера: у обоих один интерфейс chat.completions."""
+    if settings.llm_provider == "openrouter":
+        if openai is None:
+            raise ImportError("openai package is required for LLM_PROVIDER=openrouter")
+        return openai.OpenAI(
+            base_url=OPENROUTER_BASE_URL,
+            api_key=settings.openrouter_api_key,
+            # Подпись запросов в статистике OpenRouter: ключ может быть общим
+            # с другими проектами.
+            default_headers={"X-Title": "Document Converter bot"},
+        )
+    return groq.Groq(api_key=settings.groq_api_key)
+
+
 def convert_pdf_to_docx_via_groq(source_path: Path, output_dir: Path) -> Path:
     """Convert PDF to DOCX using Groq vision LLM."""
     
     if not groq or not Document:
         raise ImportError("groq and python-docx are required for LLM conversion")
     
-    if not settings.groq_api_key:
-        raise GroqConversionError("GROQ_API_KEY is not configured")
+    if not settings.llm_api_key:
+        raise GroqConversionError(f"{settings.llm_api_key_name} is not configured")
 
     source_path = Path(source_path)
     if not source_path.exists():
@@ -95,13 +116,14 @@ def convert_pdf_bytes_to_docx_via_groq(pdf_bytes: bytes, original_name: str) -> 
     if not groq or not Document or not convert_from_bytes:
         raise ImportError("groq, python-docx, and pdf2image are required for memory conversion")
     
-    if not settings.groq_api_key:
-        raise GroqConversionError("GROQ_API_KEY is not configured")
+    if not settings.llm_api_key:
+        raise GroqConversionError(f"{settings.llm_api_key_name} is not configured")
     
     logger.info("Converting PDF bytes to DOCX in memory: %s (%d bytes)", original_name, len(pdf_bytes))
     logger.info(
-        "Groq config: model=%s max_tokens=%d batch_size=%d max_side=%d dpi=%d",
-        settings.groq_model,
+        "LLM config: provider=%s model=%s max_tokens=%d batch_size=%d max_side=%d dpi=%d",
+        settings.llm_provider,
+        settings.llm_model,
         settings.groq_max_tokens,
         settings.groq_batch_size,
         settings.groq_image_max_side,
@@ -172,7 +194,7 @@ def _process_images_with_adaptive_strategy(
     if not images:
         raise GroqConversionError("No images to process")
 
-    client = groq.Groq(api_key=settings.groq_api_key)
+    client = _llm_client()
     tasks = _build_initial_tasks(images)
 
     all_results: list[dict[str, Any]] = []
@@ -560,7 +582,7 @@ def _process_pil_batch_with_groq(
 
     try:
         response = client.chat.completions.create(
-            model=settings.groq_model,
+            model=settings.llm_model,
             messages=[
                 {
                     "role": "user", 
@@ -722,7 +744,7 @@ def _process_batch_with_groq(
 
     try:
         response = client.chat.completions.create(
-            model=settings.groq_model,
+            model=settings.llm_model,
             messages=[
                 {
                     "role": "user",

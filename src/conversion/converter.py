@@ -243,8 +243,8 @@ def convert_image_to_docx(source_path: Path, output_dir: Path) -> Path:
 
 
 def _convert_pdf_to_docx_groq(source_path: Path, output_dir: Path) -> Path:
-    if not (convert_pdf_to_docx_via_groq and settings.groq_api_key):
-        raise ConversionError("Groq conversion is not available: configure GROQ_API_KEY")
+    if not (convert_pdf_to_docx_via_groq and settings.llm_api_key):
+        raise ConversionError(f"LLM conversion is not available: configure {settings.llm_api_key_name}")
     try:
         logger.info("Attempting PDF conversion via Groq LLM")
         return convert_pdf_to_docx_via_groq(source_path, output_dir)
