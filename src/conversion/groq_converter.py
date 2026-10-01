@@ -65,6 +65,13 @@ def _llm_client():
     return groq.Groq(api_key=settings.groq_api_key)
 
 
+def _llm_request_options() -> dict[str, Any]:
+    """Параметры запроса, которые есть только у OpenRouter."""
+    if settings.llm_provider == "openrouter" and settings.openrouter_reasoning_effort:
+        return {"extra_body": {"reasoning": {"effort": settings.openrouter_reasoning_effort}}}
+    return {}
+
+
 def convert_pdf_to_docx_via_groq(source_path: Path, output_dir: Path) -> Path:
     """Convert PDF to DOCX using Groq vision LLM."""
     
@@ -541,7 +548,9 @@ def _normalize_batch_result(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def _batch_max_tokens(expected_pages: list[int]) -> int:
-    estimated_tokens = 4000 * len(expected_pages)
+    # Ответ на плотную страницу с оформлением занимает ~3500 токенов, а
+    # модели с рассуждениями тратят из того же бюджета ещё и на них.
+    estimated_tokens = settings.llm_max_tokens_per_page * len(expected_pages)
     return min(settings.groq_max_tokens, max(2048, estimated_tokens))
 
 
@@ -595,6 +604,7 @@ def _process_pil_batch_with_groq(
             response_format={"type": "json_object"},
             max_tokens=max_tokens,
             temperature=0.0,
+            **_llm_request_options(),
         )
 
         choice = response.choices[0]
@@ -757,6 +767,7 @@ def _process_batch_with_groq(
             response_format={"type": "json_object"},
             max_tokens=max_tokens,
             temperature=0.0,
+            **_llm_request_options(),
         )
 
         choice = response.choices[0]
