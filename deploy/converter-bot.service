@@ -1,0 +1,18 @@
+[Unit]
+Description=Telegram-бот конвертации документов в DOCX
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@APP_DIR@
+ExecStart=@APP_DIR@/.venv/bin/python bot.py
+Environment=PYTHONUNBUFFERED=1
+# LibreOffice хранит профиль в домашней папке.
+Environment=HOME=@HOME@
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

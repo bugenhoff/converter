@@ -1,0 +1,79 @@
+name: Tests and deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install poppler
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      - run: uv run pytest -q
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      SERVER: ${{ secrets.SERVER }}
+      SSH_USER: ${{ secrets.NAME }}
+      SSH_PORT: ${{ vars.SSH_PORT || '22' }}
+      # Пусто — ~/converter пользователя NAME.
+      APP_DIR: ${{ vars.APP_DIR }}
+      SERVICE_NAME: ${{ vars.SERVICE_NAME || 'converter-bot' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" -H "$SERVER" >> ~/.ssh/known_hosts 2>/dev/null
+          cat > ~/.ssh/config <<CONFIG
+          Host deploy-target
+            HostName $SERVER
+            User $SSH_USER
+            Port $SSH_PORT
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            ServerAliveInterval 30
+          CONFIG
+
+      - name: Resolve app directory
+        run: |
+          if [ -z "$APP_DIR" ]; then
+            APP_DIR="$(ssh deploy-target 'echo "$HOME/converter"')"
+          fi
+          case "$APP_DIR" in
+            /?*) echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV" ;;
+            *) echo "::error::APP_DIR должен быть абсолютным путём, получено '$APP_DIR'"; exit 1 ;;
+          esac
+
+      - name: Upload code
+        # Заменяются только файлы из репозитория; .env, .venv и tmp на сервере не трогаются.
+        run: |
+          tar czf - bot.py pyproject.toml uv.lock .python-version README.md .env.example src deploy \
+            | ssh deploy-target "mkdir -p '$APP_DIR' && rm -rf '$APP_DIR/src' '$APP_DIR/deploy' && tar xzf - -C '$APP_DIR'"
+
+      - name: Install and restart
+        run: ssh deploy-target "APP_DIR='$APP_DIR' SERVICE_NAME='$SERVICE_NAME' bash -s" < deploy/remote-deploy.sh

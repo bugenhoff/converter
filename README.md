@@ -1,90 +1,63 @@
-# Telegram DOC→DOCX Converter Bot
+# Telegram-бот: документы в DOCX
 
-Этот репозиторий содержит Telegram-бота, который принимает `.doc`, `.docx`, `.pdf` и изображения (`.png/.jpg/...`), конвертирует их в `.docx` и отсылает результат пользователю.
+Бот принимает `.doc`, `.docx`, `.pdf` и фото/сканы страниц (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.tif`, `.tiff`, `.webp`, фото из Telegram) и возвращает `.docx` с сохранением оформления. Под каждым документом есть кнопка «Транслитерация» — копия с узбекской латиницей, переведённой в кириллицу.
 
-## Быстрый старт
+## Как это работает
 
-1. Установите зависимости в виртуальном окружении (протестировано на Python 3.13):
+- **.doc** конвертируется LibreOffice, **.docx** возвращается как есть (для транслитерации).
+- **PDF и изображения** распознаёт vision-модель (Groq или OpenRouter):
+  1. каждая страница рендерится в JPEG (`pdftoppm`), по скану меряются поля, кегль и межстрочный интервал;
+  2. страницы отправляются в модель **параллельно** (`LLM_CONCURRENCY`), каждая отдельным запросом;
+  3. модель возвращает компактный JSON: абзацы целиком (а не строки), выравнивание, красная строка, отступы, жирный/курсив/подчёркивание внутри текста, строки «слева — справа» (дата и номер, должность и подпись) и таблицы;
+  4. из этого собирается DOCX: Times New Roman, размер листа и поля как в оригинале (каждая страница — свой раздел, A5 и альбомные листы сохраняются), водяные знаки и печати отбрасываются.
+- Файлы, отправленные подряд, собираются в пачку (`BATCH_WINDOW_SECONDS`) и конвертируются параллельно. Ход работы виден в одном сообщении, готовые файлы приходят ответом на исходные сообщения сразу по готовности.
+- Если страница не распозналась после повторов, документ всё равно собирается, а в подписи указано, какие страницы пропущены.
 
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate
-   pip install --upgrade pip
-   pip install -r requirements.txt
-   ```
+В логе на каждую страницу пишется время, токены запроса и ответа, скорость (tok/s) и провайдер — так видно, тормозит провайдер или ответ слишком большой.
 
-2. Установите `LibreOffice` (должен быть доступен в PATH или укажите путь в `LIBREOFFICE_PATH`).
-3. Скопируйте `.env.example` → `.env` и заполните значения переменных:
+## Запуск локально
 
-   ```env
-   TELEGRAM_BOT_TOKEN=123456:ABCDEF
-   LIBREOFFICE_PATH=libreoffice
-   TESSDATA_PREFIX=/root/tesseract/tessdata/
-   OCR_LANGUAGES=rus+eng+uzb+uzb_cyrl
-   GROQ_API_KEY=your_groq_api_key_here
-   GROQ_MODEL=llama-3.2-11b-vision-preview
-   PDF_CONVERSION_MODE=groq_only
-   GROQ_MAX_TOKENS=12000
-   GROQ_BATCH_SIZE=1
-   GROQ_MAX_REQUESTS_PER_DOCUMENT=0
-   GROQ_MIN_BATCH_SIZE=1
-   GROQ_IMAGE_MAX_SIDE=800
-   GROQ_MIN_IMAGE_MAX_SIDE=480
-   GROQ_IMAGE_SIDE_REDUCTION_FACTOR=0.8
-   GROQ_RETRY_PER_TASK=2
-   GROQ_PDF_IMAGE_DPI=200
-   TEMP_DIR=./tmp
-   LOG_LEVEL=INFO
-   ```
-
-5. Запустите бота:
-
-   ```bash
-   python bot.py
-   ```
-
-
-## Сценарий работы бота
-
-1. Пользователь отправляет один или несколько документов (`.doc`, `.docx`, `.pdf`) или изображений (включая `photo` из Telegram).
-2. Каждый файл скачивается, помещается в очередь и автоматически обрабатывается после тайм-окна (10 секунд).
-3. Бот отправляет готовый `.docx` с подписью `✅ source -> result`.
-4. Под каждым отправленным `.docx` появляется inline-кнопка `Транслитерация` (латиница -> кириллица, uz).
-5. По клику на кнопку бот отправляет отдельный файл `<name>_cyrillic.docx`.
-
-## Что делает бот
-
-- Принимает `.doc`, `.docx`, `.pdf`, изображения (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.tif`, `.tiff`, `.webp`) и Telegram `photo`.
-- Для PDF/изображений поддерживает режимы: `groq_only`, `groq_first`, `reliability_first` через `PDF_CONVERSION_MODE`.
-- В режиме Groq использует адаптивную стратегию: split батчей, downscale изображений, retries и контроль лимита запросов на документ.
-- Для изображений конвертирует image -> temp PDF -> выбранный PDF pipeline.
-- Поддерживает транслитерацию узбекской латиницы в кириллицу для готового DOCX через inline-кнопку.
-- Чистит временные файлы и сообщает об ошибках (например, если LibreOffice возвращает код ошибки).
-
-## Структура проекта
-
-- `bot.py` — точка входа.
-- `src/config/settings.py` — загрузка `.env` и настройка путей.
-- `src/conversion/converter.py` — модуль конвертации `.doc/.pdf/.image` с режимами Groq/deterministic.
-- `src/conversion/transliteration.py` — транслитерация узбекской латиницы -> кириллица в DOCX.
-- `src/bot/handlers.py` — Telegram-хендлеры (`/start`, прием документов/фото, callback транслитерации).
-- `src/bot/queue.py` — утилиты для хранения очереди файлов на уровне чата.
-- `src/bot/batching.py` — сборка ZIP-архива с уже конвертированными документами.
-- `src/bot/app.py` — инициализация `python-telegram-bot` и запуск приложения.
-- `tests/` — базовый тест на защиту конвертера.
-
-## Тестирование
+Нужны Python 3.11+ (по умолчанию 3.13), [uv](https://docs.astral.sh/uv/), `poppler-utils` (`pdftoppm`, `pdfinfo`, `pdftotext`) и LibreOffice с Writer. Для режимов с OCR — Tesseract с нужными языками.
 
 ```bash
-pytest
+cp .env.example .env   # заполнить токен, ключ провайдера и ALLOWED_USER_IDS
+uv sync
+uv run python bot.py
 ```
 
-## Примечания
+Тесты: `uv run pytest`.
 
-- Бот работает в режиме polling и рассчитан на небольшие файлы (по умолчанию до 20 МБ).
-- Убедитесь, что `TEMP_DIR` доступен для записи, и присваивайте уникальные имена файлам внутри одного запроса.
-- Если LibreOffice установлен через Flatpak (`org.libreoffice.LibreOffice`), бот автоматически запустит его через `flatpak run --command=soffice ...`. При необходимости задайте собственную команду с помощью `LIBREOFFICE_PATH`.
-- **PDF режим**: управляется переменной `PDF_CONVERSION_MODE` (`groq_only | groq_first | reliability_first`).
-- OCR использует Tesseract. Настройте `TESSDATA_PREFIX` и `OCR_LANGUAGES`, чтобы перечислить доступные языки (по умолчанию `rus+eng+uzb+uzb_cyrl`).
-- **Транслитерация**: по кнопке `Транслитерация` создается новый `<name>_cyrillic.docx`. Обработка выполняется для текстовых слоев DOCX (paragraph/table/header/footer).
-- **Groq limits**: `GROQ_MAX_TOKENS` ограничивает размер ответа; для максимальной полноты распознавания текста рекомендуется `GROQ_BATCH_SIZE=1`. Нагрузка на вход регулируется `GROQ_IMAGE_MAX_SIDE`, `GROQ_PDF_IMAGE_DPI` и адаптивными параметрами (`GROQ_MIN_BATCH_SIZE`, `GROQ_MIN_IMAGE_MAX_SIDE`, `GROQ_IMAGE_SIDE_REDUCTION_FACTOR`, `GROQ_RETRY_PER_TASK`, `GROQ_MAX_REQUESTS_PER_DOCUMENT`).
+## Деплой
+
+`.github/workflows/deploy.yml` на каждый push в `main` прогоняет тесты, затем по SSH:
+
+1. распаковывает код в каталог бота на сервере (`.env`, `.venv` и `tmp/` не трогаются);
+2. ставит uv, если его нет, и выполняет `uv sync --frozen --no-dev`;
+3. устанавливает systemd-юнит из `deploy/converter-bot.service` и перезапускает сервис.
+
+Секреты репозитория (Settings → Secrets and variables → Actions):
+
+| Секрет   | Что это                                  |
+|----------|------------------------------------------|
+| `SERVER` | адрес сервера                            |
+| `NAME`   | пользователь SSH                         |
+| `KEY`    | приватный SSH-ключ этого пользователя    |
+
+Необязательные переменные репозитория (вкладка Variables): `APP_DIR` — каталог бота (по умолчанию `~/converter`), `SERVICE_NAME` (по умолчанию `converter-bot`), `SSH_PORT` (по умолчанию 22).
+
+Перед первым деплоем на сервере должен лежать `APP_DIR/.env`. Пользователь `NAME` должен быть root или иметь `sudo` без пароля — для установки юнита. Если бот раньше запускался вручную (screen, nohup), этот процесс нужно остановить: два экземпляра с одним токеном мешают друг другу, скрипт деплоя предупредит об этом.
+
+Логи: `journalctl -u converter-bot -f`.
+
+## Структура
+
+- `bot.py` — точка входа.
+- `src/config/settings.py` — настройки из `.env`.
+- `src/bot/` — Telegram: обработчики (`handlers.py`), пачки файлов и прогресс (`processing.py`), доступ (`auth.py`), запуск (`app.py`).
+- `src/conversion/pipeline.py` — выбор способа конвертации по типу файла и `PDF_CONVERSION_MODE`.
+- `src/conversion/pages.py` — рендер страниц и измерение полей/кегля по скану.
+- `src/conversion/llm.py` — промпт и параллельные запросы к модели.
+- `src/conversion/layout.py` — разбор ответа модели.
+- `src/conversion/docx_builder.py` — сборка DOCX.
+- `src/conversion/libreoffice.py`, `src/conversion/ocr.py` — LibreOffice и запасной OCR.
+- `src/conversion/transliteration.py` — латиница → кириллица в DOCX.
