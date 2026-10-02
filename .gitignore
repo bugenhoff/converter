@@ -1,23 +1,8 @@
-# Build artifacts
 __pycache__/
 *.py[cod]
-*.egg-info/
-build/
-dist/
-env/
-venv/
 .venv/
-
-# Environment
-.env
-
-# Misc
-*.log
-*.pot
-*.mo
-
-#roadmap.md
 .pytest_cache/
-tmp/** */
-387-test.pdf
-.~lock.387-test.pdf#
+
+.env
+tmp/
+*.log

@@ -1,130 +1,122 @@
-"""Configuration helpers that load secrets from `.env`."""
+"""Настройки бота из переменных окружения и `.env`."""
 
+from __future__ import annotations
+
+import os
 from dataclasses import dataclass
 from pathlib import Path
-import os
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
+PDF_MODES = ("llm_only", "llm_first", "reliability_first")
+# Названия режимов из времён, когда распознавание умело только Groq.
+LEGACY_PDF_MODES = {"groq_only": "llm_only", "groq_first": "llm_first"}
 
-def _load_env(key: str, default: str | None = None, required: bool = False) -> str:
-    value = os.environ.get(key, default)
-    if required and not value:
-        raise RuntimeError(f"Mandatory environment variable {key} is missing")
-    return value  # type: ignore[no-any-return]
+LLM_BASE_URLS = {
+    "groq": "https://api.groq.com/openai/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+}
 
 
-def _load_env_int(
-    key: str,
-    default: int,
-    *,
-    minimum: int | None = None,
-    maximum: int | None = None,
-) -> int:
-    raw = os.environ.get(key)
-    if raw is None or not raw.strip():
-        value = default
-    else:
-        try:
-            value = int(raw)
-        except ValueError as exc:
-            raise RuntimeError(f"Mandatory integer environment variable {key} is invalid") from exc
+def _str(key: str, default: str = "") -> str:
+    return os.environ.get(key, default).strip()
 
+
+def _first_set(*keys: str) -> str | None:
+    for key in keys:
+        raw = os.environ.get(key)
+        if raw is not None and raw.strip():
+            return raw.strip()
+    return None
+
+
+def _int(*keys: str, default: int, minimum: int | None = None, maximum: int | None = None) -> int:
+    raw = _first_set(*keys)
+    try:
+        value = default if raw is None else int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{keys[0]} должно быть целым числом, получено {raw!r}") from exc
+    return _check_range(keys[0], value, minimum, maximum)
+
+
+def _float(key: str, *, default: float, minimum: float | None = None, maximum: float | None = None) -> float:
+    raw = _first_set(key)
+    try:
+        value = default if raw is None else float(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{key} должно быть числом, получено {raw!r}") from exc
+    return _check_range(key, value, minimum, maximum)
+
+
+def _check_range(key, value, minimum, maximum):
     if minimum is not None and value < minimum:
-        raise RuntimeError(f"{key} must be >= {minimum}")
+        raise RuntimeError(f"{key} должно быть >= {minimum}")
     if maximum is not None and value > maximum:
-        raise RuntimeError(f"{key} must be <= {maximum}")
+        raise RuntimeError(f"{key} должно быть <= {maximum}")
     return value
 
 
-def _load_env_float(
-    key: str,
-    default: float,
-    *,
-    minimum: float | None = None,
-    maximum: float | None = None,
-) -> float:
-    raw = os.environ.get(key)
-    if raw is None or not raw.strip():
-        value = default
-    else:
-        try:
-            value = float(raw)
-        except ValueError as exc:
-            raise RuntimeError(f"Mandatory float environment variable {key} is invalid") from exc
+def _bool(key: str, default: bool) -> bool:
+    raw = _first_set(key)
+    if raw is None:
+        return default
+    return raw.lower() in {"1", "true", "yes", "on"}
 
-    if minimum is not None and value < minimum:
-        raise RuntimeError(f"{key} must be >= {minimum}")
-    if maximum is not None and value > maximum:
-        raise RuntimeError(f"{key} must be <= {maximum}")
-    return value
+
+def _user_ids(key: str) -> frozenset[int]:
+    raw = _str(key)
+    try:
+        return frozenset(int(part) for part in raw.split(",") if part.strip())
+    except ValueError as exc:
+        raise RuntimeError(f"{key}: ожидаются числа через запятую") from exc
+
+
+def _pdf_mode() -> str:
+    mode = _str("PDF_CONVERSION_MODE", "llm_only").lower()
+    mode = LEGACY_PDF_MODES.get(mode, mode)
+    if mode not in PDF_MODES:
+        raise RuntimeError(f"PDF_CONVERSION_MODE должен быть одним из: {', '.join(PDF_MODES)}")
+    return mode
+
+
+def _llm_provider() -> str:
+    provider = _str("LLM_PROVIDER", "groq").lower()
+    if provider not in LLM_BASE_URLS:
+        raise RuntimeError(f"LLM_PROVIDER должен быть одним из: {', '.join(LLM_BASE_URLS)}")
+    return provider
 
 
 @dataclass
 class Settings:
     telegram_token: str
+    allowed_users_only: bool
+    allowed_user_ids: frozenset[int]
+    log_level: str
+    temp_dir: Path
+    batch_window_seconds: float
+    max_parallel_files: int
+
     libreoffice_path: str
+    pdf_conversion_mode: str
     tessdata_prefix: str
     ocr_languages: str
+
+    llm_provider: str
     groq_api_key: str
     groq_model: str
-    llm_provider: str
     openrouter_api_key: str
     openrouter_model: str
     openrouter_reasoning_effort: str
+    openrouter_provider_sort: str
+    llm_concurrency: int
     llm_max_tokens_per_page: int
-    pdf_conversion_mode: str
-    groq_max_tokens: int
-    groq_batch_size: int
-    groq_max_requests_per_document: int
-    groq_min_batch_size: int
-    groq_image_max_side: int
-    groq_min_image_max_side: int
-    groq_image_side_reduction_factor: float
-    groq_retry_per_task: int
-    groq_pdf_image_dpi: int
-    temp_dir: Path
-    log_level: str
-    allowed_users_only: bool
-    allowed_user_ids: list[int]
+    llm_image_max_side: int
+    llm_retries: int
+    llm_timeout_seconds: float
 
-    def __post_init__(self) -> None:
-        self.temp_dir = Path(self.temp_dir).expanduser()
-        self.temp_dir.mkdir(parents=True, exist_ok=True)
-
-        if self.llm_provider not in {"groq", "openrouter"}:
-            raise RuntimeError("LLM_PROVIDER must be one of: groq, openrouter")
-
-        allowed_modes = {"groq_only", "groq_first", "reliability_first"}
-        if self.pdf_conversion_mode not in allowed_modes:
-            raise RuntimeError(
-                "PDF_CONVERSION_MODE must be one of: groq_only, groq_first, reliability_first"
-            )
-        if self.groq_batch_size < self.groq_min_batch_size:
-            raise RuntimeError("GROQ_BATCH_SIZE must be >= GROQ_MIN_BATCH_SIZE")
-        if self.groq_min_image_max_side > self.groq_image_max_side:
-            raise RuntimeError("GROQ_MIN_IMAGE_MAX_SIDE must be <= GROQ_IMAGE_MAX_SIDE")
-        if not (0 < self.groq_image_side_reduction_factor < 1):
-            raise RuntimeError("GROQ_IMAGE_SIDE_REDUCTION_FACTOR must be > 0 and < 1")
-        
-        # Parse allowed user IDs from comma-separated string
-        if isinstance(self.allowed_user_ids, str):
-            if self.allowed_user_ids.strip():
-                try:
-                    self.allowed_user_ids = [
-                        int(uid.strip()) 
-                        for uid in self.allowed_user_ids.split(',') 
-                        if uid.strip()
-                    ]
-                except ValueError:
-                    raise RuntimeError("Invalid ALLOWED_USER_IDS format. Use comma-separated integers.")
-            else:
-                self.allowed_user_ids = []
-
-    # Провайдер распознавания PDF. Оба отдают OpenAI-совместимый API,
-    # поэтому остальная логика (пакеты страниц, повторы) общая.
+    # Groq и OpenRouter отдают OpenAI-совместимый API, отличаются адрес, ключ и модель.
     @property
     def llm_model(self) -> str:
         return self.openrouter_model if self.llm_provider == "openrouter" else self.groq_model
@@ -137,46 +129,44 @@ class Settings:
     def llm_api_key_name(self) -> str:
         return "OPENROUTER_API_KEY" if self.llm_provider == "openrouter" else "GROQ_API_KEY"
 
+    @property
+    def llm_base_url(self) -> str:
+        return LLM_BASE_URLS[self.llm_provider]
 
-settings = Settings(
-    telegram_token=_load_env("TELEGRAM_BOT_TOKEN", required=True),
-    libreoffice_path=_load_env("LIBREOFFICE_PATH", default="libreoffice"),
-    tessdata_prefix=_load_env("TESSDATA_PREFIX", default="/root/tesseract/tessdata/"),
-    ocr_languages=_load_env("OCR_LANGUAGES", default="rus+eng+uzb+uzb_cyrl"),
-    groq_api_key=_load_env("GROQ_API_KEY", default=""),
-    groq_model=_load_env("GROQ_MODEL", default="qwen/qwen3.8-27b"),
-    llm_provider=_load_env("LLM_PROVIDER", default="groq").strip().lower(),
-    openrouter_api_key=_load_env("OPENROUTER_API_KEY", default=""),
-    openrouter_model=_load_env("OPENROUTER_MODEL", default="openai/gpt-6-luna"),
-    # Пусто — глубина рассуждений по умолчанию у модели; none отключает их.
-    openrouter_reasoning_effort=_load_env("OPENROUTER_REASONING_EFFORT", default="").strip().lower(),
-    llm_max_tokens_per_page=_load_env_int("LLM_MAX_TOKENS_PER_PAGE", default=4000, minimum=1024, maximum=131072),
-    pdf_conversion_mode=_load_env("PDF_CONVERSION_MODE", default="groq_only"),
-    groq_max_tokens=_load_env_int("GROQ_MAX_TOKENS", default=12000, minimum=256, maximum=131072),
-    groq_batch_size=_load_env_int("GROQ_BATCH_SIZE", default=1, minimum=1, maximum=10),
-    groq_max_requests_per_document=_load_env_int(
-        "GROQ_MAX_REQUESTS_PER_DOCUMENT",
-        default=0,
-        minimum=0,
-    ),
-    groq_min_batch_size=_load_env_int("GROQ_MIN_BATCH_SIZE", default=1, minimum=1, maximum=10),
-    groq_image_max_side=_load_env_int("GROQ_IMAGE_MAX_SIDE", default=800, minimum=256, maximum=3000),
-    groq_min_image_max_side=_load_env_int(
-        "GROQ_MIN_IMAGE_MAX_SIDE",
-        default=480,
-        minimum=128,
-        maximum=3000,
-    ),
-    groq_image_side_reduction_factor=_load_env_float(
-        "GROQ_IMAGE_SIDE_REDUCTION_FACTOR",
-        default=0.8,
-        minimum=0.01,
-        maximum=0.99,
-    ),
-    groq_retry_per_task=_load_env_int("GROQ_RETRY_PER_TASK", default=2, minimum=0, maximum=20),
-    groq_pdf_image_dpi=_load_env_int("GROQ_PDF_IMAGE_DPI", default=200, minimum=72, maximum=600),
-    temp_dir=Path(_load_env("TEMP_DIR", default="./tmp")),
-    log_level=_load_env("LOG_LEVEL", default="INFO"),
-    allowed_users_only=_load_env("ALLOWED_USERS_ONLY", default="true").lower() == "true",
-    allowed_user_ids=_load_env("ALLOWED_USER_IDS", default=""),
-)
+
+def load_settings() -> Settings:
+    temp_dir = Path(_str("TEMP_DIR", "./tmp")).expanduser()
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    return Settings(
+        telegram_token=_str("TELEGRAM_BOT_TOKEN"),
+        allowed_users_only=_bool("ALLOWED_USERS_ONLY", True),
+        allowed_user_ids=_user_ids("ALLOWED_USER_IDS"),
+        log_level=_str("LOG_LEVEL", "INFO").upper(),
+        temp_dir=temp_dir,
+        batch_window_seconds=_float("BATCH_WINDOW_SECONDS", default=3.0, minimum=0.0, maximum=60.0),
+        max_parallel_files=_int("MAX_PARALLEL_FILES", default=3, minimum=1, maximum=20),
+        libreoffice_path=_str("LIBREOFFICE_PATH", "libreoffice"),
+        pdf_conversion_mode=_pdf_mode(),
+        tessdata_prefix=_str("TESSDATA_PREFIX"),
+        ocr_languages=_str("OCR_LANGUAGES", "rus+eng+uzb+uzb_cyrl"),
+        llm_provider=_llm_provider(),
+        groq_api_key=_str("GROQ_API_KEY"),
+        groq_model=_str("GROQ_MODEL", "qwen/qwen3.8-27b"),
+        openrouter_api_key=_str("OPENROUTER_API_KEY"),
+        openrouter_model=_str("OPENROUTER_MODEL", "openai/gpt-6-luna"),
+        # Пусто — глубина рассуждений по умолчанию у модели; none отключает их.
+        openrouter_reasoning_effort=_str("OPENROUTER_REASONING_EFFORT").lower(),
+        # throughput — самые быстрые провайдеры модели, latency — с самым быстрым
+        # первым токеном, price — самые дешёвые; пусто — балансировка OpenRouter.
+        openrouter_provider_sort=_str("OPENROUTER_PROVIDER_SORT").lower(),
+        llm_concurrency=_int("LLM_CONCURRENCY", default=6, minimum=1, maximum=32),
+        llm_max_tokens_per_page=_int(
+            "LLM_MAX_TOKENS_PER_PAGE", default=8000, minimum=1024, maximum=131072
+        ),
+        llm_image_max_side=_int("LLM_IMAGE_MAX_SIDE", default=1600, minimum=512, maximum=4096),
+        llm_retries=_int("LLM_RETRIES", "GROQ_RETRY_PER_TASK", default=2, minimum=0, maximum=10),
+        llm_timeout_seconds=_float("LLM_TIMEOUT", default=180.0, minimum=10.0, maximum=1800.0),
+    )
+
+
+settings = load_settings()
