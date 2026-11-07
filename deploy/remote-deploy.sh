@@ -22,7 +22,14 @@ for tool in pdftoppm pdfinfo pdftotext; do
   command -v "$tool" >/dev/null 2>&1 || echo "::warning::Нет $tool — установите poppler-utils"
 done
 command -v soffice >/dev/null 2>&1 || command -v libreoffice >/dev/null 2>&1 \
-  || echo "::warning::Нет LibreOffice — .doc конвертироваться не будут"
+  || echo "::warning::Нет LibreOffice — .doc/.wps и DOCX → PDF работать не будут"
+# DOCX → PDF рисуется шрифтами сервера (кроме встроенных в сам DOCX).
+if command -v fc-list >/dev/null 2>&1; then
+  fc-list | grep -qiE "Times New Roman|Liberation Serif" \
+    || echo "::warning::Нет Times New Roman и Liberation Serif — PDF из DOCX будут с другим шрифтом. Установите fonts-liberation"
+  fc-list | grep -qiE "Calibri|Carlito" \
+    || echo "::warning::Нет Calibri и Carlito — документы в Calibri съедут. Установите fonts-crosextra-carlito"
+fi
 
 SUDO=""
 if [ "$(id -u)" -ne 0 ]; then

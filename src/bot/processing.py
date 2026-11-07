@@ -10,18 +10,21 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, ReplyParameters
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Message, ReplyParameters
 from telegram.error import BadRequest
 
 from ..config.settings import settings
 from ..conversion.errors import ConversionError
-from ..conversion.pipeline import ConversionResult, convert_document
+from ..conversion.pipeline import ConversionResult, convert_document, convert_for_group
 
 logger = logging.getLogger(__name__)
 
 MAX_FILES_PER_BATCH = 10
 PROGRESS_REFRESH_SECONDS = 2.5
 TRANSLIT_CALLBACK = "translit"
+# Больше Bot API скачать не даёт.
+MAX_FILE_SIZE_MB = 20
+MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 
 Converter = Callable[..., ConversionResult]
 
@@ -32,6 +35,9 @@ class IncomingFile:
     kind: str
     payload: bytes
     message_id: int
+    # Из группы: только PDF ↔ DOCX, без транслитерации.
+    group: bool = False
+    user_id: int = 0
 
 
 @dataclass
@@ -52,24 +58,26 @@ class BatchProcessor:
 
     Файлы, присланные подряд (альбомом или выделением нескольких), приходят
     отдельными сообщениями; короткое окно ожидания объединяет их в одно
-    сообщение о прогрессе.
+    сообщение о прогрессе. В группе пачки у каждого участника свои.
     """
 
-    def __init__(self, convert: Converter = convert_document) -> None:
+    def __init__(self, convert: Converter = convert_document, convert_group: Converter = convert_for_group) -> None:
         self._convert = convert
-        self._pending: dict[int, _PendingBatch] = {}
+        self._convert_group = convert_group
+        self._pending: dict[tuple[int, int], _PendingBatch] = {}
         self._running: set[asyncio.Task] = set()
         self._slots: asyncio.Semaphore | None = None
 
     async def add(self, bot: Bot, chat_id: int, file: IncomingFile) -> None:
-        batch = self._pending.setdefault(chat_id, _PendingBatch())
+        key = (chat_id, file.user_id)
+        batch = self._pending.setdefault(key, _PendingBatch())
         batch.files.append(file)
         if batch.timer:
             batch.timer.cancel()
         if len(batch.files) >= MAX_FILES_PER_BATCH:
-            self._start(bot, chat_id)
+            self._start(bot, key)
         else:
-            batch.timer = asyncio.create_task(self._start_later(bot, chat_id))
+            batch.timer = asyncio.create_task(self._start_later(bot, key))
 
     async def wait_idle(self) -> None:
         """Дождаться всех пачек, в том числе ещё собираемых (для тестов)."""
@@ -77,22 +85,22 @@ class BatchProcessor:
             tasks = [*self._running, *(b.timer for b in self._pending.values() if b.timer)]
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def _start_later(self, bot: Bot, chat_id: int) -> None:
+    async def _start_later(self, bot: Bot, key: tuple[int, int]) -> None:
         await asyncio.sleep(settings.batch_window_seconds)
-        self._start(bot, chat_id)
+        self._start(bot, key)
 
-    def _start(self, bot: Bot, chat_id: int) -> None:
-        batch = self._pending.pop(chat_id, None)
+    def _start(self, bot: Bot, key: tuple[int, int]) -> None:
+        batch = self._pending.pop(key, None)
         if not batch or not batch.files:
             return
-        task = asyncio.create_task(self._process(bot, chat_id, batch.files))
+        task = asyncio.create_task(self._process(bot, key[0], batch.files))
         self._running.add(task)
         task.add_done_callback(self._running.discard)
 
     async def _process(self, bot: Bot, chat_id: int, files: list[IncomingFile]) -> None:
         if self._slots is None:
             self._slots = asyncio.Semaphore(settings.max_parallel_files)
-        progress = _ProgressMessage(bot, chat_id, [f.name for f in files])
+        progress = _ProgressMessage(bot, chat_id, [f.name for f in files], reply_to=files[0].message_id)
         await progress.start()
         try:
             await asyncio.gather(*(self._process_file(bot, chat_id, i, f, progress) for i, f in enumerate(files)))
@@ -113,11 +121,12 @@ class BatchProcessor:
             # Вызывается из потока конвертации.
             loop.call_soon_threadsafe(progress.update, index, "⚙️", note)
 
+        convert = self._convert_group if file.group else self._convert
         async with self._slots:
             progress.update(index, "⚙️", "конвертирую")
             started = time.monotonic()
             try:
-                result = await asyncio.to_thread(self._convert, file.payload, file.name, file.kind, on_status)
+                result = await asyncio.to_thread(convert, file.payload, file.name, file.kind, on_status)
             except ConversionError as exc:
                 logger.error("Conversion of %s failed: %s", file.name, exc)
                 progress.update(index, "❌", _short_error(exc))
@@ -128,34 +137,63 @@ class BatchProcessor:
                 return
             elapsed = time.monotonic() - started
 
-        docx_name = f"{Path(file.name).stem}.docx"
+        output_name = f"{Path(file.name).stem}{result.extension}"
         details = [f"{result.pages} стр." if result.pages else "", _format_duration(elapsed)]
-        caption = f"✅ {docx_name} · " + " · ".join(d for d in details if d)
+        caption = f"✅ {output_name} · " + " · ".join(d for d in details if d)
         if result.warnings:
             caption += "\n⚠️ " + "; ".join(result.warnings)
+        buttons = None
+        if not file.group and result.extension == ".docx":
+            buttons = InlineKeyboardMarkup([[InlineKeyboardButton("Транслитерация", callback_data=TRANSLIT_CALLBACK)]])
         try:
             await bot.send_document(
                 chat_id=chat_id,
-                document=InputFile(result.docx, filename=docx_name),
+                document=InputFile(result.data, filename=output_name),
                 caption=caption,
                 reply_parameters=ReplyParameters(file.message_id, allow_sending_without_reply=True),
-                reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("Транслитерация", callback_data=TRANSLIT_CALLBACK)]]
-                ),
+                reply_markup=buttons,
             )
         except Exception:
-            logger.exception("Failed to send %s", docx_name)
+            logger.exception("Failed to send %s", output_name)
             progress.update(index, "❌", "не удалось отправить файл")
             return
         progress.update(index, "⚠️" if result.warnings else "✅", "; ".join(result.warnings) or "готово")
 
 
+async def enqueue_media(
+    bot: Bot,
+    notify: Message,
+    media,
+    file_name: str,
+    kind: str,
+    *,
+    message_id: int,
+    user_id: int,
+    group: bool = False,
+) -> None:
+    """Скачивает файл из Telegram и ставит в пачку; об ошибках пишет ответом на ``notify``."""
+    if media.file_size and media.file_size > MAX_FILE_SIZE_BYTES:
+        await notify.reply_text(f"⚠️ {file_name} больше {MAX_FILE_SIZE_MB} МБ — Telegram не даёт ботам скачать такой файл.")
+        return
+    telegram_file = await media.get_file()
+    payload = bytes(await telegram_file.download_as_bytearray())
+    if not payload:
+        await notify.reply_text(f"⚠️ {file_name}: пустой файл.")
+        return
+    await batch_processor.add(
+        bot,
+        notify.chat_id,
+        IncomingFile(name=file_name, kind=kind, payload=payload, message_id=message_id, group=group, user_id=user_id),
+    )
+
+
 class _ProgressMessage:
     """Одно сообщение на пачку; правится не чаще раза в PROGRESS_REFRESH_SECONDS."""
 
-    def __init__(self, bot: Bot, chat_id: int, names: list[str]) -> None:
+    def __init__(self, bot: Bot, chat_id: int, names: list[str], reply_to: int | None = None) -> None:
         self._bot = bot
         self._chat_id = chat_id
+        self._reply_to = reply_to
         self._files = [_FileState(name) for name in names]
         self._message_id: int | None = None
         self._shown = ""
@@ -169,7 +207,8 @@ class _ProgressMessage:
     async def start(self) -> None:
         text = self._render(finished=False)
         try:
-            message = await self._bot.send_message(self._chat_id, text, parse_mode="HTML")
+            reply = ReplyParameters(self._reply_to, allow_sending_without_reply=True) if self._reply_to else None
+            message = await self._bot.send_message(self._chat_id, text, parse_mode="HTML", reply_parameters=reply)
         except Exception:
             logger.exception("Failed to send progress message")
             return

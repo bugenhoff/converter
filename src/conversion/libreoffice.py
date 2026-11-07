@@ -1,4 +1,4 @@
-"""Конвертация .doc в .docx через LibreOffice."""
+"""Конвертация через LibreOffice: .doc/.wps → .docx и текстовые документы → .pdf."""
 
 from __future__ import annotations
 
@@ -23,6 +23,13 @@ DOCX_EXPORT_TARGETS = (
     "docx:Office Open XML Text",
     "docx:MS Word 2007 XML",
 )
+PDF_EXPORT_TARGETS = (
+    "pdf",
+    "pdf:writer_pdf_Export",
+)
+# Расширения, которые сохраняются у исходника: по ним LibreOffice выбирает
+# фильтр импорта (.wps бывает и форматом WPS Office, и Microsoft Works).
+SOURCE_EXTENSIONS = (".doc", ".docx", ".wps", ".rtf", ".odt")
 
 
 _TIMEOUT_SECONDS = 180
@@ -32,19 +39,28 @@ _lock = threading.Lock()
 
 
 def doc_to_docx(payload: bytes, original_name: str) -> bytes:
-    """.doc в байтах → .docx в байтах."""
-    with tempfile.TemporaryDirectory(dir=settings.temp_dir, prefix="doc_") as tmp:
-        source = Path(tmp) / "in" / _safe_doc_name(original_name)
+    """.doc или .wps в байтах → .docx в байтах."""
+    return _convert_bytes(payload, original_name, DOCX_EXPORT_TARGETS, ".docx")
+
+
+def to_pdf(payload: bytes, original_name: str) -> bytes:
+    """.docx, .doc, .wps в байтах → .pdf в байтах."""
+    return _convert_bytes(payload, original_name, PDF_EXPORT_TARGETS, ".pdf")
+
+
+def _convert_bytes(payload: bytes, original_name: str, targets: tuple[str, ...], suffix: str) -> bytes:
+    with tempfile.TemporaryDirectory(dir=settings.temp_dir, prefix="lo_") as tmp:
+        source = Path(tmp) / "in" / _safe_source_name(original_name)
         source.parent.mkdir()
         source.write_bytes(payload)
-        converted = convert_doc_to_docx(source, Path(tmp) / "out", settings.libreoffice_path)
+        converted = convert_with_libreoffice(source, Path(tmp) / "out", settings.libreoffice_path, targets, suffix)
         return converted.read_bytes()
 
 
-def _safe_doc_name(original_name: str) -> str:
+def _safe_source_name(original_name: str) -> str:
     # LibreOffice называет результат по имени исходника, поэтому имя сохраняется.
     name = Path(original_name.replace("/", "_").replace("\\", "_").strip()).name or "document.doc"
-    if Path(name).suffix.lower() != ".doc":
+    if Path(name).suffix.lower() not in SOURCE_EXTENSIONS:
         name = f"{Path(name).stem or 'document'}.doc"
     return name
 
@@ -53,6 +69,17 @@ def convert_doc_to_docx(
     source_path: Path,
     output_dir: Path,
     libreoffice_bin: str = "libreoffice",
+) -> Path:
+    """.doc на диске → путь к .docx."""
+    return convert_with_libreoffice(source_path, output_dir, libreoffice_bin, DOCX_EXPORT_TARGETS, ".docx")
+
+
+def convert_with_libreoffice(
+    source_path: Path,
+    output_dir: Path,
+    libreoffice_bin: str,
+    export_targets: tuple[str, ...],
+    suffix: str,
 ) -> Path:
     """Run LibreOffice headless converter and return the converted path."""
 
@@ -63,11 +90,11 @@ def convert_doc_to_docx(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     started_at = time.time()
-    existing_outputs = {path.resolve() for path in _iter_docx_outputs(output_dir)}
+    existing_outputs = {path.resolve() for path in _iter_outputs(output_dir, suffix)}
 
     libreoffice_command = _resolve_libreoffice_command(libreoffice_bin)
     attempts: list[tuple[str, subprocess.CompletedProcess[str]]] = []
-    for export_target in DOCX_EXPORT_TARGETS:
+    for export_target in export_targets:
         command = libreoffice_command + [
             "--headless",
             "--convert-to",
@@ -95,21 +122,23 @@ def convert_doc_to_docx(
             stdout=process.stdout,
             existing_outputs=existing_outputs,
             started_at=started_at,
+            suffix=suffix,
         )
         if converted_path is not None:
             break
     else:
         converted_path = None
 
+    kind = suffix.lstrip(".").upper()
     if converted_path is None:
-        available = ", ".join(path.name for path in _iter_docx_outputs(output_dir)) or "none"
+        available = ", ".join(path.name for path in _iter_outputs(output_dir, suffix)) or "none"
         raise ConversionError(
-            "LibreOffice did not produce a DOCX file:"
+            f"LibreOffice did not produce a {kind} file:"
             f" attempts={_format_libreoffice_attempts(attempts)},"
-            f" output_dir={output_dir}, docx_files={available}"
+            f" output_dir={output_dir}, {kind.lower()}_files={available}"
         )
     if converted_path.stat().st_size == 0:
-        raise ConversionError(f"LibreOffice produced an empty DOCX file: {converted_path}")
+        raise ConversionError(f"LibreOffice produced an empty {kind} file: {converted_path}")
 
     return converted_path
 
@@ -126,14 +155,14 @@ def _format_libreoffice_attempts(
     )
 
 
-def _iter_docx_outputs(output_dir: Path) -> list[Path]:
-    """Return DOCX-like files, handling case-sensitive filesystems."""
+def _iter_outputs(output_dir: Path, suffix: str) -> list[Path]:
+    """Return files with the given suffix, handling case-sensitive filesystems."""
     if not output_dir.exists():
         return []
     return [
         path
         for path in output_dir.iterdir()
-        if path.is_file() and path.suffix.lower() == ".docx"
+        if path.is_file() and path.suffix.lower() == suffix
     ]
 
 
@@ -144,19 +173,20 @@ def _find_libreoffice_output(
     stdout: str,
     existing_outputs: set[Path],
     started_at: float,
+    suffix: str = ".docx",
 ) -> Path | None:
-    expected_path = output_dir / f"{source_path.stem}.docx"
+    expected_path = output_dir / f"{source_path.stem}{suffix}"
     if expected_path.exists():
         return expected_path
 
     for parsed_path in _parse_libreoffice_output_paths(stdout, output_dir):
-        if parsed_path.exists() and parsed_path.suffix.lower() == ".docx":
+        if parsed_path.exists() and parsed_path.suffix.lower() == suffix:
             return parsed_path
 
-    docx_outputs = _iter_docx_outputs(output_dir)
+    outputs = _iter_outputs(output_dir, suffix)
     new_outputs = [
         path
-        for path in docx_outputs
+        for path in outputs
         if path.resolve() not in existing_outputs or path.stat().st_mtime >= started_at
     ]
     if not new_outputs:

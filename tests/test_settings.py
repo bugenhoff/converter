@@ -39,3 +39,24 @@ def test_user_ids_and_legacy_retry_name(env):
     loaded = settings_module.load_settings()
     assert loaded.allowed_user_ids == frozenset({1, 2, 3})
     assert loaded.llm_retries == 5
+
+
+def test_group_settings(env):
+    env.setenv("ALLOWED_CHAT_IDS", "-1001234567890, -42")
+    env.setenv("GROUP_AUTO_CONVERT", "yes")
+    loaded = settings_module.load_settings()
+    assert loaded.allowed_chat_ids == frozenset({-1001234567890, -42})
+    assert loaded.group_auto_convert is True
+
+
+def test_group_settings_default_to_closed(env):
+    env.delenv("ALLOWED_CHAT_IDS", raising=False)
+    env.delenv("GROUP_AUTO_CONVERT", raising=False)
+    loaded = settings_module.load_settings()
+    assert loaded.allowed_chat_ids == frozenset()
+    assert loaded.group_auto_convert is False
+
+
+def test_auto_pdf_mode_is_accepted(env):
+    env.setenv("PDF_CONVERSION_MODE", "auto")
+    assert settings_module.load_settings().pdf_conversion_mode == "auto"

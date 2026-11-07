@@ -114,3 +114,38 @@ def test_full_batch_starts_without_waiting(monkeypatch):
 def test_progress_text_escapes_html():
     progress = processing._ProgressMessage(FakeBot(), 1, ["<a&b>.pdf"])
     assert "&lt;a&amp;b&gt;.pdf" in progress._render(finished=False)
+
+
+def test_group_file_uses_group_converter_without_translit_button():
+    def private(*_):
+        raise AssertionError("private converter must not be used for group files")
+
+    def group(payload, name, kind, on_status):
+        return ConversionResult(b"%PDF", pages=1, extension=".pdf")
+
+    async def scenario():
+        bot = FakeBot()
+        processor = BatchProcessor(private, group)
+        await processor.add(bot, -100, IncomingFile("Договор.docx", "docx", b"x", 5, group=True, user_id=7))
+        await processor.wait_idle()
+        return bot
+
+    bot = asyncio.run(scenario())
+    [sent] = bot.documents
+    assert sent["document"].filename == "Договор.pdf"
+    assert sent["reply_markup"] is None
+    assert sent["caption"].startswith("✅ Договор.pdf")
+
+
+def test_group_members_get_separate_batches():
+    async def scenario():
+        bot = FakeBot()
+        processor = BatchProcessor(lambda *a: ConversionResult(b"d"), lambda *a: ConversionResult(b"d"))
+        await processor.add(bot, -100, IncomingFile("a.pdf", "pdf", b"x", 1, group=True, user_id=1))
+        await processor.add(bot, -100, IncomingFile("b.pdf", "pdf", b"x", 2, group=True, user_id=2))
+        await processor.wait_idle()
+        return bot
+
+    bot = asyncio.run(scenario())
+    assert len(bot.sent_messages) == 2
+    assert len(bot.documents) == 2

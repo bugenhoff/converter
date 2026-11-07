@@ -11,8 +11,10 @@ from pathlib import Path
 from PIL import Image
 
 from ..config.settings import settings
+from .docx_repair import repair_docx
 from .errors import ConversionError
 from .pages import pdf_has_text_layer
+from .pdf_layout import pdf_to_docx_layout, run_pdf2docx
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +23,7 @@ def pdf_to_docx_direct(pdf_bytes: bytes) -> bytes:
     """pdf2docx по текстовому слою; у сканов слоя нет, и результат был бы из картинок."""
     if not pdf_has_text_layer(pdf_bytes):
         raise ConversionError("В PDF нет текстового слоя")
-    with tempfile.TemporaryDirectory(dir=settings.temp_dir, prefix="direct_") as tmp:
-        source = Path(tmp) / "source.pdf"
-        source.write_bytes(pdf_bytes)
-        return _pdf2docx(source, Path(tmp) / "result.docx")
+    return pdf_to_docx_layout(pdf_bytes)
 
 
 def pdf_to_docx_ocr(pdf_bytes: bytes) -> bytes:
@@ -52,7 +51,7 @@ def pdf_to_docx_ocr(pdf_bytes: bytes) -> bytes:
             )
         except Exception as exc:
             raise ConversionError(f"OCR не удался: {exc}") from exc
-        return _pdf2docx(searchable, Path(tmp) / "result.docx")
+        return repair_docx(run_pdf2docx(searchable.read_bytes()))
 
 
 def image_to_docx_ocr(image_bytes: bytes) -> bytes:
@@ -63,24 +62,3 @@ def image_to_docx_ocr(image_bytes: bytes) -> bytes:
     except Exception as exc:
         raise ConversionError(f"Не удалось подготовить изображение для OCR: {exc}") from exc
     return pdf_to_docx_ocr(buffer.getvalue())
-
-
-def _pdf2docx(source: Path, target: Path) -> bytes:
-    try:
-        from pdf2docx import Converter
-    except ImportError as exc:
-        raise ConversionError("Для этого режима нужен пакет pdf2docx") from exc
-
-    converter = None
-    try:
-        converter = Converter(str(source))
-        converter.convert(str(target), start=0, end=None)
-    except Exception as exc:
-        raise ConversionError(f"pdf2docx не справился: {exc}") from exc
-    finally:
-        if converter is not None:
-            converter.close()
-
-    if not target.exists() or target.stat().st_size == 0:
-        raise ConversionError("pdf2docx не создал DOCX")
-    return target.read_bytes()

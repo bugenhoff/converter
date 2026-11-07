@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-PDF_MODES = ("llm_only", "llm_first", "reliability_first")
+PDF_MODES = ("llm_only", "llm_first", "reliability_first", "auto")
 # Названия режимов из времён, когда распознавание умело только Groq.
 LEGACY_PDF_MODES = {"groq_only": "llm_only", "groq_first": "llm_first"}
 
@@ -65,7 +65,7 @@ def _bool(key: str, default: bool) -> bool:
     return raw.lower() in {"1", "true", "yes", "on"}
 
 
-def _user_ids(key: str) -> frozenset[int]:
+def _ids(key: str) -> frozenset[int]:
     raw = _str(key)
     try:
         return frozenset(int(part) for part in raw.split(",") if part.strip())
@@ -93,6 +93,10 @@ class Settings:
     telegram_token: str
     allowed_users_only: bool
     allowed_user_ids: frozenset[int]
+    # Группы, где ботом пользуются все участники (личка для них закрыта).
+    allowed_chat_ids: frozenset[int]
+    # Конвертировать в группе каждый подходящий файл, без вызова бота.
+    group_auto_convert: bool
     log_level: str
     temp_dir: Path
     batch_window_seconds: float
@@ -140,7 +144,9 @@ def load_settings() -> Settings:
     return Settings(
         telegram_token=_str("TELEGRAM_BOT_TOKEN"),
         allowed_users_only=_bool("ALLOWED_USERS_ONLY", True),
-        allowed_user_ids=_user_ids("ALLOWED_USER_IDS"),
+        allowed_user_ids=_ids("ALLOWED_USER_IDS"),
+        allowed_chat_ids=_ids("ALLOWED_CHAT_IDS"),
+        group_auto_convert=_bool("GROUP_AUTO_CONVERT", False),
         log_level=_str("LOG_LEVEL", "INFO").upper(),
         temp_dir=temp_dir,
         batch_window_seconds=_float("BATCH_WINDOW_SECONDS", default=3.0, minimum=0.0, maximum=60.0),

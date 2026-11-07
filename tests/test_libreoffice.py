@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from src.conversion.errors import ConversionError
-from src.conversion.libreoffice import convert_doc_to_docx, doc_to_docx
+from src.conversion.libreoffice import convert_doc_to_docx, doc_to_docx, to_pdf
 
 
 def test_missing_source_file(tmp_path: Path):
@@ -166,3 +166,51 @@ def test_doc_to_docx_keeps_original_name(monkeypatch):
 
     assert doc_to_docx(b"doc", "818 24.12.2025 (1).doc") == b"docx"
     assert seen == ["818 24.12.2025 (1).doc"]
+
+
+def test_to_pdf_exports_pdf_and_keeps_wps_name(monkeypatch):
+    monkeypatch.setattr(
+        "src.conversion.libreoffice._resolve_libreoffice_command",
+        lambda *_: ["libreoffice"],
+    )
+    seen = []
+
+    class FakeResult:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        source = Path(args[-1])
+        seen.append((source.name, args[args.index("--convert-to") + 1]))
+        outdir = Path(args[args.index("--outdir") + 1])
+        (outdir / f"{source.stem}.pdf").write_bytes(b"%PDF")
+        return FakeResult()
+
+    monkeypatch.setattr("src.conversion.libreoffice.subprocess.run", fake_run)
+
+    assert to_pdf(b"wps", "Письмо 5.wps") == b"%PDF"
+    assert seen == [("Письмо 5.wps", "pdf")]
+
+
+def test_unknown_extension_is_treated_as_doc(monkeypatch):
+    monkeypatch.setattr(
+        "src.conversion.libreoffice._resolve_libreoffice_command",
+        lambda *_: ["libreoffice"],
+    )
+    seen = []
+
+    class FakeResult:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        source = Path(args[-1])
+        seen.append(source.name)
+        (Path(args[args.index("--outdir") + 1]) / f"{source.stem}.docx").write_bytes(b"docx")
+        return FakeResult()
+
+    monkeypatch.setattr("src.conversion.libreoffice.subprocess.run", fake_run)
+    assert doc_to_docx(b"x", "file.bin") == b"docx"
+    assert seen == ["file.doc"]

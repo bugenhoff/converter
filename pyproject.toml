@@ -1,7 +1,7 @@
 [project]
 name = "converter-bot"
-version = "2.0.0"
-description = "Telegram-бот: .doc, .pdf и сканы страниц в .docx"
+version = "2.1.0"
+description = "Telegram-бот: .doc, .wps, .pdf и сканы страниц в .docx; в группах PDF ↔ DOCX"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -9,10 +9,13 @@ dependencies = [
     "python-dotenv>=1.0",
     "openai>=1.40",
     "python-docx>=1.1",
+    "lxml>=5.0",
     "pillow>=10.0",
-    # Нужны только режимам llm_first и reliability_first (OCR и текстовый слой).
-    "ocrmypdf>=16.0",
+    # Цифровые PDF → DOCX с вёрсткой (группы и режимы auto, reliability_first).
     "pdf2docx>=0.5",
+    "pymupdf>=1.24",
+    # OCR для режимов llm_first и reliability_first.
+    "ocrmypdf>=16.0",
 ]
 
 [dependency-groups]
