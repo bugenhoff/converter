@@ -219,3 +219,30 @@ def test_run_properties_follow_schema_order():
     )
     order = [etree.QName(child).localname for child in root.xpath("//w:rPr", namespaces=NS)[0]]
     assert order == ["rFonts", "b", "color", "w"]
+
+
+def test_images_are_read_correctly_when_they_precede_the_document():
+    """writestr меняет ZipInfo: чтение картинки после записи соседних частей не должно ломаться."""
+    png = io.BytesIO()
+    Image.new("RGB", (8, 8), (11, 42, 91)).save(png, "PNG")
+    body = (
+        '<w:p><w:pPr><w:tabs><w:tab w:val="left" w:pos="260"/></w:tabs><w:ind w:left="40"/></w:pPr>'
+        '<w:r><w:drawing><wp:inline><wp:extent cx="63500" cy="50800"/>'
+        '<a:graphic><a:graphicData><a:blip r:embed="rId5"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>'
+        "<w:r><w:tab/></w:r><w:r><w:t>item</w:t></w:r></w:p>"
+    )
+    rels = (
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
+        'Target="media/image1.png"/></Relationships>'
+    )
+    buffer = io.BytesIO()
+    # Как у LibreOffice: другой уровень сжатия, поэтому в результате другие смещения.
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as package:
+        package.writestr("[Content_Types].xml", "".join(f"<Default Extension='e{i}' ContentType='t/{i * 7}'/>" for i in range(300)))
+        package.writestr("word/_rels/document.xml.rels", rels)
+        package.writestr("word/media/image1.png", png.getvalue())
+        package.writestr("word/document.xml", HEAD + body + TAIL)
+    result = repair_docx(buffer.getvalue())
+    root = etree.fromstring(zipfile.ZipFile(io.BytesIO(result)).read("word/document.xml"))
+    assert root.xpath("//w:r[1]/w:rPr/w:color/@w:val", namespaces=NS) == ["0B2A5B"]

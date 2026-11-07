@@ -20,9 +20,15 @@ class FakeBot:
     username = BOT.username
     id = BOT.id
 
+    can_read_all_group_messages = False
+
     def __init__(self):
         self.messages = []
         self.reactions = []
+        self.status = "member"
+
+    async def get_chat_member(self, chat_id, user_id, **kwargs):
+        return SimpleNamespace(status=self.status)
 
     async def send_message(self, chat_id, text, **kwargs):
         self.messages.append(text)
@@ -79,6 +85,7 @@ def env(monkeypatch, fresh_state):
     monkeypatch.setattr(group.settings, "super_admin_ids", frozenset({ADMIN.id}))
     monkeypatch.setattr(group.settings, "daily_file_limit", 20)
     monkeypatch.setattr(group, "albums", group.AlbumTracker())
+    monkeypatch.setattr(group, "_visibility", {})
     queued, refunds = [], []
 
     async def fake_enqueue(bot, notify, media, file_name, kind, *, message_id, user_id, group=False, on_failure=None):
@@ -192,9 +199,49 @@ def test_album_is_converted_when_any_file_calls_the_bot(env):
 
 def test_album_tracker_forgets_old_albums():
     tracker = group.AlbumTracker(ttl=-1)
-    tracker.remember("A", "file")
-    assert tracker.call("A") == []
-    assert not tracker.is_called("A")
+    tracker.add(-100, "A", 1, "file")
+    assert tracker.files(-100, "A") == []
+    assert not tracker.is_called(-100, "A")
+
+
+def test_album_tracker_keeps_only_recent_albums():
+    tracker = group.AlbumTracker(limit=2)
+    for album in "ABC":
+        tracker.add(-100, album, 1, album)
+    assert tracker.files(-100, "A") == []
+    assert tracker.files(-100, "C") == [("C", 1)]
+
+
+def _album(env_chat=ALLOWED, ids=(90, 91), album="F"):
+    return [_message(i, chat=env_chat, document=_document(f"{i}.wps"), album=album) for i in ids]
+
+
+def test_reply_to_album_converts_every_file_the_bot_has_seen(env):
+    first, second = _album()
+    run(env, first, second, _message(92, text="/convert@conv_bot", reply_to=first))
+    assert env.queued == [("90.wps", "wps", 92, True), ("91.wps", "wps", 92, True)]
+    assert env.bot.messages == []
+
+
+def test_reply_to_album_the_bot_cannot_see_explains_why(env):
+    first, _ = _album()
+    run(env, _message(92, text="/convert@conv_bot", reply_to=first))
+    assert env.queued == [("90.wps", "wps", 92, True)]
+    assert env.bot.messages == [group.PARTIAL_ALBUM]
+
+
+def test_no_album_hint_when_bot_is_admin(env):
+    env.bot.status = "administrator"
+    first, _ = _album()
+    run(env, _message(92, text="/convert@conv_bot", reply_to=first))
+    assert env.bot.messages == []
+
+
+def test_auto_mode_does_not_convert_album_twice(env, monkeypatch):
+    monkeypatch.setattr(group.settings, "group_auto_convert", True)
+    first, second = _album()
+    run(env, first, second, _message(93, document=_document("93.wps"), album="F", caption="@conv_bot"))
+    assert [q[0] for q in env.queued] == ["90.wps", "91.wps", "93.wps"]
 
 
 def test_explicit_call_reads_command_name():

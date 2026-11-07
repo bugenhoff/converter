@@ -111,14 +111,53 @@ def test_private_wps_goes_through_libreoffice(monkeypatch):
     assert seen == ["a.wps"]
 
 
-@pytest.mark.parametrize("kind", ["docx", "doc", "wps"])
-def test_group_turns_word_documents_into_pdf(monkeypatch, kind):
-    monkeypatch.setattr(pipeline, "to_pdf", lambda payload, name: b"%PDF-" + name.encode())
+@pytest.fixture
+def word_routes(monkeypatch):
+    calls = []
+    monkeypatch.setattr(pipeline, "to_pdf", lambda payload, name: calls.append(("pdf", payload, name)) or b"%PDF-" + name.encode())
+    monkeypatch.setattr(pipeline, "doc_to_docx", lambda payload, name: calls.append(("docx", payload, name)) or b"lo-docx")
     monkeypatch.setattr(pipeline, "pdf_page_count", lambda pdf: 3)
-    result = pipeline.convert_for_group(b"x", f"a.{kind}", kind)
-    assert result.data == f"%PDF-a.{kind}".encode()
-    assert result.extension == ".pdf"
-    assert result.pages == 3
+
+    def install(fixes=()):
+        monkeypatch.setattr(pipeline, "repair_imported_docx", lambda docx, original: (b"fixed-" + docx, list(fixes)))
+        return calls
+
+    return install
+
+
+def test_group_turns_docx_into_pdf_directly(word_routes):
+    calls = word_routes()
+    result = pipeline.convert_for_group(b"x", "a.docx", "docx")
+    assert (result.data, result.extension, result.pages) == (b"%PDF-a.docx", ".pdf", 3)
+    assert calls == [("pdf", b"x", "a.docx")]
+
+
+@pytest.mark.parametrize("kind", ["doc", "wps"])
+def test_group_binary_word_uses_original_when_import_is_fine(word_routes, kind):
+    calls = word_routes(fixes=())
+    assert pipeline.convert_for_group(b"x", f"a.{kind}", kind).data == f"%PDF-a.{kind}".encode()
+    assert calls[-1] == ("pdf", b"x", f"a.{kind}")
+
+
+def test_group_binary_word_uses_repaired_docx(word_routes):
+    calls = word_routes(fixes=["цвет границ: 3"])
+    assert pipeline.convert_for_group(b"x", "КП.wps", "wps").data == "%PDF-КП.docx".encode()
+    assert calls[-1] == ("pdf", b"fixed-lo-docx", "КП.docx")
+
+
+def test_private_wps_returns_repaired_docx(word_routes):
+    word_routes(fixes=["размер картинок: 1"])
+    assert pipeline.convert_document(b"x", "a.wps", "wps").data == b"fixed-lo-docx"
+
+
+def test_repair_failure_keeps_libreoffice_result(word_routes, monkeypatch):
+    word_routes()
+
+    def broken(docx, original):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(pipeline, "repair_imported_docx", broken)
+    assert pipeline.convert_document(b"x", "a.doc", "doc").data == b"lo-docx"
 
 
 def test_group_rejects_images():

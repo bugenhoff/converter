@@ -121,7 +121,8 @@ def repair_docx(data: bytes, backgrounds: dict[str, str] | None = None) -> bytes
             content = source.read(item)
             if _PARTS.match(item.filename):
                 content = repair_part(content, backgrounds or {}, _image_colors(source, item.filename))
-            target.writestr(item, content)
+            # Копия: writestr меняет ZipInfo, и чтение картинок из исходного архива сломалось бы.
+            target.writestr(copy.copy(item), content)
     return output.getvalue()
 
 
