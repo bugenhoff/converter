@@ -6,7 +6,7 @@
 
 - файлом с подписью, где упомянут бот (@имя) или есть команда (/convert);
 - упоминанием или командой в ответ на сообщение с файлом — конвертируется
-  файл из того сообщения;
+  файл из того сообщения, а если он из альбома — весь альбом;
 - файлом в ответ на сообщение бота.
 
 У участников дневной лимит файлов (у супер-админов — нет).
@@ -21,6 +21,8 @@ from __future__ import annotations
 import functools
 import logging
 import time
+from collections import OrderedDict
+from dataclasses import dataclass, field
 
 from telegram import ChatMember, Message, MessageEntity, Update
 from telegram.ext import ContextTypes
@@ -33,11 +35,18 @@ from .state import bot_state
 
 logger = logging.getLogger(__name__)
 
-ALBUM_TTL_SECONDS = 120
+# Файлы альбомов помнятся сутки: на альбом могут ответить и через несколько часов.
+ALBUM_TTL_SECONDS = 24 * 3600
+MAX_ALBUMS = 1000
+VISIBILITY_TTL_SECONDS = 600
 HELP_COMMANDS = ("start", "help")
 
 UNSUPPORTED = "В группе я конвертирую только PDF → DOCX и DOCX, DOC, WPS → PDF."
 LIMIT_REACHED = "⛔ Дневной лимит — {limit} файлов на участника — исчерпан, пропущено: {skipped}. Счётчик обнулится в полночь."
+PARTIAL_ALBUM = (
+    "ℹ️ Конвертирую только этот файл: остальные файлы альбома мне не видны. "
+    "Чтобы конвертировался весь альбом, сделайте бота администратором группы."
+)
 # Подтверждение супер-админу, что группа подключена, — реакцией, без сообщения.
 CONNECTED_REACTION = "👌"
 
@@ -59,38 +68,67 @@ def group_help(username: str) -> str:
     return "\n".join(lines)
 
 
-class AlbumTracker:
-    """Файлы одного альбома приходят отдельными сообщениями, подпись — только у одного.
+@dataclass
+class _Album:
+    updated: float
+    files: dict[int, object] = field(default_factory=dict)  # id сообщения → документ
+    called: bool = False
+    done: set[int] = field(default_factory=set)
 
-    Файлы без вызова запоминаются; если позже (или раньше) в том же альбоме
-    вызвали бота, конвертируется весь альбом.
+
+class AlbumTracker:
+    """Файлы альбомов, которые видел бот: альбом приходит отдельными сообщениями.
+
+    - вызов в подписи одного файла → конвертируется весь альбом, в том числе
+      файлы, пришедшие позже;
+    - вызов ответом на любой файл альбома → конвертируется весь альбом.
+
+    Файлы без вызова бот получает, только если он администратор группы или
+    у него выключен privacy mode.
     """
 
-    def __init__(self, ttl: float = ALBUM_TTL_SECONDS) -> None:
+    def __init__(self, ttl: float = ALBUM_TTL_SECONDS, limit: int = MAX_ALBUMS) -> None:
         self._ttl = ttl
-        self._waiting: dict[str, tuple[float, list]] = {}
-        self._called: dict[str, float] = {}
+        self._limit = limit
+        self._albums: OrderedDict[tuple[int, str], _Album] = OrderedDict()
 
-    def remember(self, album_id: str, item) -> None:
-        self._expire()
-        self._waiting.setdefault(album_id, (time.monotonic(), []))[1].append(item)
+    def add(self, chat_id: int, album_id: str, message_id: int, document) -> None:
+        album = self._get(chat_id, album_id, create=True)
+        album.files[message_id] = document
 
-    def call(self, album_id: str) -> list:
-        """Отмечает альбом вызванным и отдаёт запомненные файлы."""
-        self._expire()
-        self._called[album_id] = time.monotonic()
-        return self._waiting.pop(album_id, (0.0, []))[1]
+    def files(self, chat_id: int, album_id: str) -> list[tuple[object, int]]:
+        album = self._get(chat_id, album_id)
+        return sorted(((doc, mid) for mid, doc in album.files.items()), key=lambda item: item[1]) if album else []
 
-    def is_called(self, album_id: str | None) -> bool:
-        self._expire()
-        return album_id is not None and album_id in self._called
+    def call(self, chat_id: int, album_id: str) -> list[tuple[object, int]]:
+        """Отмечает альбом вызванным и отдаёт ещё не сконвертированные файлы."""
+        album = self._get(chat_id, album_id, create=True)
+        album.called = True
+        fresh = [(doc, mid) for doc, mid in self.files(chat_id, album_id) if mid not in album.done]
+        album.done.update(mid for _, mid in fresh)
+        return fresh
 
-    def _expire(self) -> None:
-        deadline = time.monotonic() - self._ttl
-        for key in [k for k, (at, _) in self._waiting.items() if at < deadline]:
-            del self._waiting[key]
-        for key in [k for k, at in self._called.items() if at < deadline]:
-            del self._called[key]
+    def mark_done(self, chat_id: int, album_id: str, message_id: int) -> None:
+        self._get(chat_id, album_id, create=True).done.add(message_id)
+
+    def is_called(self, chat_id: int, album_id: str | None) -> bool:
+        album = self._get(chat_id, album_id) if album_id else None
+        return bool(album and album.called)
+
+    def _get(self, chat_id: int, album_id: str, create: bool = False) -> _Album | None:
+        now = time.monotonic()
+        while self._albums and next(iter(self._albums.values())).updated < now - self._ttl:
+            self._albums.popitem(last=False)
+        key = (chat_id, album_id)
+        album = self._albums.get(key)
+        if album is None and create:
+            album = self._albums[key] = _Album(now)
+            while len(self._albums) > self._limit:
+                self._albums.popitem(last=False)
+        if album is not None:
+            album.updated = now
+            self._albums.move_to_end(key)
+        return album
 
 
 albums = AlbumTracker()
@@ -128,24 +166,34 @@ async def group_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     own = message.document
     album = message.media_group_id
 
+    if own is not None and album:
+        albums.add(chat.id, album, message.message_id, own)
+
     # Что конвертировать: (документ, id сообщения, на которое ответить).
     targets: list[tuple] = []
+    partial_album = False
     called = explicit
     if own is not None:
-        called = explicit or replies_to_bot(message, bot.id) or albums.is_called(album)
-        if album and called:
-            targets.extend(albums.call(album))
-        if called or settings.group_auto_convert:
-            targets.append((own, message.message_id))
-        elif album:
-            albums.remember(album, (own, message.message_id))
-            return
+        called = explicit or replies_to_bot(message, bot.id) or albums.is_called(chat.id, album)
+        if called and album:
+            targets = albums.call(chat.id, album)
+        elif called or settings.group_auto_convert:
+            targets = [(own, message.message_id)]
+            if album:
+                albums.mark_done(chat.id, album, message.message_id)
         else:
             return
     elif explicit:
         replied = message.reply_to_message
         if replied is not None and replied.document is not None:
-            targets.append((replied.document, message.message_id))
+            if replied.media_group_id:
+                # Ответ на файл из альбома — весь альбом, который видел бот.
+                albums.add(chat.id, replied.media_group_id, replied.message_id, replied.document)
+                files = albums.files(chat.id, replied.media_group_id)
+                targets = [(document, message.message_id) for document, _ in files]
+                partial_album = len(files) == 1
+            else:
+                targets = [(replied.document, message.message_id)]
     else:
         return
 
@@ -199,6 +247,28 @@ async def group_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if skipped:
         logger.info("User %d hit the daily limit in group %d, skipped %d", user.id, chat.id, skipped)
         await message.reply_text(LIMIT_REACHED.format(limit=state.daily_limit, skipped=skipped))
+    if partial_album and not await _sees_all_messages(bot, chat.id):
+        await message.reply_text(PARTIAL_ALBUM)
+
+
+_visibility: dict[int, tuple[float, bool]] = {}
+
+
+async def _sees_all_messages(bot, chat_id: int) -> bool:
+    """Видит ли бот все сообщения группы: администратор или privacy mode выключен."""
+    if getattr(bot, "can_read_all_group_messages", False):
+        return True
+    cached = _visibility.get(chat_id)
+    if cached and cached[0] > time.monotonic() - VISIBILITY_TTL_SECONDS:
+        return cached[1]
+    try:
+        member = await bot.get_chat_member(chat_id, bot.id)
+        sees = member.status in (ChatMember.ADMINISTRATOR, ChatMember.OWNER)
+    except Exception as exc:
+        logger.debug("Cannot check bot status in %d: %s", chat_id, exc)
+        return True
+    _visibility[chat_id] = (time.monotonic(), sees)
+    return sees
 
 
 async def _acknowledge(message: Message) -> None:

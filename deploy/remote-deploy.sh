@@ -23,17 +23,44 @@ for tool in pdftoppm pdfinfo pdftotext; do
 done
 command -v soffice >/dev/null 2>&1 || command -v libreoffice >/dev/null 2>&1 \
   || echo "::warning::Нет LibreOffice — .doc/.wps и DOCX → PDF работать не будут"
-# DOCX → PDF рисуется шрифтами сервера (кроме встроенных в сам DOCX).
-if command -v fc-list >/dev/null 2>&1; then
-  fc-list | grep -qiE "Times New Roman|Liberation Serif" \
-    || echo "::warning::Нет Times New Roman и Liberation Serif — PDF из DOCX будут с другим шрифтом. Установите fonts-liberation"
-  fc-list | grep -qiE "Calibri|Carlito" \
-    || echo "::warning::Нет Calibri и Carlito — документы в Calibri съедут. Установите fonts-crosextra-carlito"
-fi
 
 SUDO=""
 if [ "$(id -u)" -ne 0 ]; then
   SUDO="sudo -n"
+fi
+
+# DOCX/DOC/WPS → PDF рисуется шрифтами сервера (кроме встроенных в сам DOCX;
+# в .doc и .wps шрифты не встраиваются). Недостающие пакеты ставятся сами,
+# если есть apt и sudo без пароля.
+FONT_PACKAGES=(
+  "Liberation Serif|fonts-liberation"   # метрическая замена Times New Roman и Arial
+  "Carlito|fonts-crosextra-carlito"     # замена Calibri
+  "Caladea|fonts-crosextra-caladea"     # замена Cambria
+  "Inter|fonts-inter"
+  "Roboto|fonts-roboto"
+  "Open Sans|fonts-open-sans"
+  "Montserrat|fonts-montserrat"
+  "PT Sans|fonts-paratype"
+)
+families="$(fc-list : family 2>/dev/null || true)"
+missing=()
+for entry in "${FONT_PACKAGES[@]}"; do
+  grep -qiF "${entry%%|*}" <<<"$families" || missing+=("${entry##*|}")
+done
+if [ "${#missing[@]}" -gt 0 ]; then
+  if command -v apt-get >/dev/null 2>&1 && $SUDO true 2>/dev/null; then
+    echo "Устанавливаю шрифты: ${missing[*]}"
+    install_fonts() { $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "$@" >/dev/null 2>&1; }
+    if ! install_fonts "${missing[@]}"; then
+      # Устаревший список пакетов или одного пакета нет в дистрибутиве — ставим по одному.
+      $SUDO apt-get update -qq >/dev/null 2>&1 || true
+      for package in "${missing[@]}"; do
+        install_fonts "$package" || echo "::warning::Не удалось установить $package"
+      done
+    fi
+  else
+    echo "::warning::Нет шрифтов (${missing[*]}) — PDF будут со шрифтами-заменами. Установите: sudo apt install ${missing[*]}"
+  fi
 fi
 
 sed -e "s|@APP_DIR@|$APP_DIR|g" -e "s|@USER@|$(id -un)|g" -e "s|@HOME@|$HOME|g" \

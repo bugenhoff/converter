@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 from ..config.settings import settings
@@ -16,6 +17,7 @@ from .llm import LLMError, transcribe_pages
 from .ocr import image_to_docx_ocr, pdf_to_docx_direct, pdf_to_docx_ocr
 from .pages import PdfPages, image_to_page
 from .pdf_layout import pdf_page_count, pdf_to_docx_layout, profile_pdf
+from .word_binary import repair_imported_docx
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +60,8 @@ def convert_document(
         result = ConversionResult(payload)
     elif kind in ("doc", "wps"):
         status("LibreOffice")
-        result = ConversionResult(doc_to_docx(payload, file_name))
+        docx, _ = _word_binary_to_docx(payload, file_name)
+        result = ConversionResult(docx)
     elif kind == "pdf":
         result = _convert_pdf(payload, status)
     elif kind == "image":
@@ -82,12 +85,36 @@ def convert_for_group(
         result = _pdf_auto(payload, status)
     elif kind in WORD_KINDS:
         status("LibreOffice → PDF")
-        pdf = to_pdf(payload, file_name)
+        pdf = _word_to_pdf(payload, file_name, kind)
         result = ConversionResult(pdf, pages=pdf_page_count(pdf), extension=".pdf")
     else:
         raise ConversionError(f"В группе конвертируются только PDF, DOCX, DOC и WPS: {file_name}")
     _log_result(file_name, kind, result, started)
     return result
+
+
+def _word_binary_to_docx(payload: bytes, file_name: str) -> tuple[bytes, list[str]]:
+    """.doc/.wps → DOCX через LibreOffice с исправлением того, что он читает неправильно."""
+    docx = doc_to_docx(payload, file_name)
+    try:
+        docx, fixes = repair_imported_docx(docx, payload)
+    except Exception:
+        # Исправления — улучшение, а не условие: без них документ всё равно отдаётся.
+        logger.exception("Repair of LibreOffice import failed for %s", file_name)
+        return docx, []
+    if fixes:
+        logger.info("Repaired LibreOffice import of %s: %s", file_name, "; ".join(fixes))
+    return docx, fixes
+
+
+def _word_to_pdf(payload: bytes, file_name: str, kind: str) -> bytes:
+    if kind == "docx":
+        return to_pdf(payload, file_name)
+    # Бинарный .doc/.wps: если импорт пришлось чинить, PDF делается из исправленного DOCX.
+    docx, fixes = _word_binary_to_docx(payload, file_name)
+    if fixes:
+        return to_pdf(docx, f"{Path(file_name).stem or 'document'}.docx")
+    return to_pdf(payload, file_name)
 
 
 def _log_result(file_name: str, kind: str, result: ConversionResult, started: float) -> None:

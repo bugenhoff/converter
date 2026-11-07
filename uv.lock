@@ -303,11 +303,12 @@ wheels = [
 
 [[package]]
 name = "converter-bot"
-version = "2.1.0"
+version = "2.2.0"
 source = { virtual = "." }
 dependencies = [
     { name = "lxml" },
     { name = "ocrmypdf" },
+    { name = "olefile" },
     { name = "openai" },
     { name = "pdf2docx" },
     { name = "pillow" },
@@ -326,6 +327,7 @@ dev = [
 requires-dist = [
     { name = "lxml", specifier = ">=5.0" },
     { name = "ocrmypdf", specifier = ">=16.0" },
+    { name = "olefile", specifier = ">=0.47" },
     { name = "openai", specifier = ">=1.40" },
     { name = "pdf2docx", specifier = ">=0.5" },
     { name = "pillow", specifier = ">=10.0" },
@@ -1087,6 +1089,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d9/1b/d35a3c9bb4e4959bd782808f0eb45cce16e66040a292b7f4eaa6a6e44ff1/ocrmypdf-17.13.0.tar.gz", hash = "sha256:151c35d810eb628fbc5cb9bbe80b834ecf094737efa0e7a2e9e1fac3c730ed49", size = 7685391, upload-time = "2026-09-28T18:55:06.322Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3f/01/37f376f372901878e6166249bb2c15e943b1627294060be19d6f3ba3b849/ocrmypdf-17.13.0-py3-none-any.whl", hash = "sha256:f4d226f361c4b1498637f9c674daebfaf84223b84d9eba6bfba60a3ba260f9de", size = 561907, upload-time = "2026-09-28T18:55:04.514Z" },
+]
+
+[[package]]
+name = "olefile"
+version = "0.47"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/69/1b/077b508e3e500e1629d366249c3ccb32f95e50258b231705c09e3c7a4366/olefile-0.47.zip", hash = "sha256:599383381a0bf3dfbd932ca0ca6515acd174ed48870cbf7fee123d698c192c1c", size = 112240, upload-time = "2023-12-01T16:22:53.025Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/17/d3/b64c356a907242d719fc668b71befd73324e47ab46c8ebbbede252c154b2/olefile-0.47-py2.py3-none-any.whl", hash = "sha256:543c7da2a7adadf21214938bb79c83ea12b473a4b6ee4ad4bf854e7715e13d1f", size = 114565, upload-time = "2023-12-01T16:22:51.518Z" },
 ]
 
 [[package]]

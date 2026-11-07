@@ -1,6 +1,6 @@
 [project]
 name = "converter-bot"
-version = "2.1.0"
+version = "2.2.0"
 description = "Telegram-бот: .doc, .wps, .pdf и сканы страниц в .docx; в группах PDF ↔ DOCX"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -11,6 +11,8 @@ dependencies = [
     "python-docx>=1.1",
     "lxml>=5.0",
     "pillow>=10.0",
+    # Чтение бинарных .doc/.wps: цвета границ, которые теряет LibreOffice.
+    "olefile>=0.47",
     # Цифровые PDF → DOCX с вёрсткой (группы и режимы auto, reliability_first).
     "pdf2docx>=0.5",
     "pymupdf>=1.24",
