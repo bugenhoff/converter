@@ -97,6 +97,14 @@ class Settings:
     allowed_chat_ids: frozenset[int]
     # Конвертировать в группе каждый подходящий файл, без вызова бота.
     group_auto_convert: bool
+    # Супер-админы: подключают группы вызовом бота, управляют доступом и лимитом.
+    super_admin_ids: frozenset[int]
+    # Файлов в сутки на участника в группах (0 — без лимита), пока супер-админ не задал другое.
+    daily_file_limit: int
+    # Где хранятся подключённые группы, лимит и счётчики.
+    state_file: Path
+    # Часовой пояс, в котором начинаются сутки для лимита.
+    timezone: str
     log_level: str
     temp_dir: Path
     batch_window_seconds: float
@@ -147,6 +155,10 @@ def load_settings() -> Settings:
         allowed_user_ids=_ids("ALLOWED_USER_IDS"),
         allowed_chat_ids=_ids("ALLOWED_CHAT_IDS"),
         group_auto_convert=_bool("GROUP_AUTO_CONVERT", False),
+        super_admin_ids=_ids("SUPER_ADMIN_IDS"),
+        daily_file_limit=_int("DAILY_FILE_LIMIT", default=20, minimum=0, maximum=100000),
+        state_file=Path(_str("STATE_FILE", "./data/state.json")).expanduser(),
+        timezone=_str("TIMEZONE", "Asia/Tashkent"),
         log_level=_str("LOG_LEVEL", "INFO").upper(),
         temp_dir=temp_dir,
         batch_window_seconds=_float("BATCH_WINDOW_SECONDS", default=3.0, minimum=0.0, maximum=60.0),

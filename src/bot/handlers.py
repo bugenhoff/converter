@@ -11,7 +11,8 @@ from telegram.ext import ContextTypes
 
 from ..conversion.pipeline import IMAGE_EXTENSIONS, detect_kind
 from ..conversion.transliteration import transliterate_docx_bytes
-from .auth import log_user_access, require_auth
+from .admin import admin_keyboard
+from .auth import is_super_admin, log_user_access, require_auth
 from .processing import enqueue_media
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,8 @@ UNSUPPORTED_TEXT = (
 @require_auth
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message:
-        await update.message.reply_text(START_TEXT)
+        keyboard = admin_keyboard() if is_super_admin(update.effective_user.id) else None
+        await update.message.reply_text(START_TEXT, reply_markup=keyboard)
 
 
 @require_auth

@@ -1,9 +1,12 @@
 """Доступ к боту.
 
-- Личный чат — только пользователи из ALLOWED_USER_IDS.
-- Группа из ALLOWED_CHAT_IDS — все её участники, но только в этой группе:
-  в личке они по-прежнему не допущены, если их нет в ALLOWED_USER_IDS.
-- ALLOWED_USERS_ONLY=false открывает бота всем и везде.
+- Личный чат — пользователи из ALLOWED_USER_IDS и супер-админы.
+- Группа из ALLOWED_CHAT_IDS или подключённая супер-админом — все её
+  участники, но только в этой группе: в личке они по-прежнему не допущены,
+  если их нет в ALLOWED_USER_IDS.
+- Группу, убранную супер-админом, бот не обслуживает, пока супер-админ
+  снова не вызовет его в ней.
+- ALLOWED_USERS_ONLY=false открывает бота всем и везде (кроме убранных групп).
 """
 
 from __future__ import annotations
@@ -16,23 +19,26 @@ from telegram import Chat, Update
 from telegram.ext import ContextTypes
 
 from ..config.settings import settings
+from .state import bot_state
 
 logger = logging.getLogger(__name__)
 ACCESS_DENIED = "🚫 Доступ запрещён"
 GROUP_CHAT_TYPES = (Chat.GROUP, Chat.SUPERGROUP)
 
 
+def is_super_admin(user_id: int) -> bool:
+    return user_id in settings.super_admin_ids
+
+
 def check_user_access(user_id: int) -> bool:
     """Доступ в личном чате."""
-    if not settings.allowed_users_only:
+    if not settings.allowed_users_only or is_super_admin(user_id):
         return True
     return user_id in settings.allowed_user_ids
 
 
 def check_group_access(chat_id: int) -> bool:
-    if not settings.allowed_users_only:
-        return True
-    return chat_id in settings.allowed_chat_ids
+    return bot_state().is_group_allowed(chat_id)
 
 
 def check_chat_access(chat_type: str, chat_id: int, user_id: int) -> bool:

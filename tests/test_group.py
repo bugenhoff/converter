@@ -22,9 +22,14 @@ class FakeBot:
 
     def __init__(self):
         self.messages = []
+        self.reactions = []
 
     async def send_message(self, chat_id, text, **kwargs):
         self.messages.append(text)
+
+    async def set_message_reaction(self, chat_id, message_id, reaction=None, **kwargs):
+        self.reactions.append((message_id, reaction))
+        return True
 
 
 def _document(name):
@@ -63,20 +68,26 @@ def _message(message_id, *, chat=ALLOWED, text=None, caption=None, document=None
     return message
 
 
+ADMIN = User(id=42, first_name="Boss", is_bot=False)
+
+
 @pytest.fixture
-def env(monkeypatch):
+def env(monkeypatch, fresh_state):
     monkeypatch.setattr(group.settings, "allowed_users_only", True)
     monkeypatch.setattr(group.settings, "allowed_chat_ids", frozenset({ALLOWED.id}))
     monkeypatch.setattr(group.settings, "group_auto_convert", False)
+    monkeypatch.setattr(group.settings, "super_admin_ids", frozenset({ADMIN.id}))
+    monkeypatch.setattr(group.settings, "daily_file_limit", 20)
     monkeypatch.setattr(group, "albums", group.AlbumTracker())
-    queued = []
+    queued, refunds = [], []
 
-    async def fake_enqueue(bot, notify, media, file_name, kind, *, message_id, user_id, group=False):
+    async def fake_enqueue(bot, notify, media, file_name, kind, *, message_id, user_id, group=False, on_failure=None):
         queued.append((file_name, kind, message_id, group))
+        refunds.append(on_failure)
 
     monkeypatch.setattr(group, "enqueue_media", fake_enqueue)
     bot = FakeBot()
-    return SimpleNamespace(bot=bot, queued=queued, context=SimpleNamespace(bot=bot))
+    return SimpleNamespace(bot=bot, queued=queued, refunds=refunds, state=fresh_state, context=SimpleNamespace(bot=bot))
 
 
 def run(env, *messages):
@@ -150,10 +161,11 @@ def test_unsupported_file_type_is_reported(env):
     assert "table.xlsx" in env.bot.messages[0]
 
 
-def test_unknown_group_gets_its_id_only_when_calling(env):
+def test_unknown_group_stays_silent_for_members(env):
     run(env, _message(9, chat=STRANGER, caption="@conv_bot", document=_document("a.pdf")))
     assert env.queued == []
-    assert str(STRANGER.id) in env.bot.messages[0]
+    assert env.bot.messages == []
+    assert not env.state.is_group_allowed(STRANGER.id)
 
 
 def test_unknown_group_is_silent_without_call(env, monkeypatch):
@@ -188,3 +200,72 @@ def test_album_tracker_forgets_old_albums():
 def test_explicit_call_reads_command_name():
     message = _message(1, text="/Convert@Conv_Bot please")
     assert group.explicit_call(message, "conv_bot", BOT.id) == (True, "convert")
+
+
+def test_super_admin_call_connects_group_silently_and_converts(env):
+    run(
+        env,
+        _message(30, chat=STRANGER, caption="@conv_bot", document=_document("a.pdf"), sender=ADMIN),
+        _message(31, chat=STRANGER, caption="@conv_bot", document=_document("b.docx")),
+    )
+    assert env.state.is_group_allowed(STRANGER.id)
+    assert env.state.title(STRANGER.id) == "Чужая"
+    assert [q[0] for q in env.queued] == ["a.pdf", "b.docx"]
+    assert env.bot.messages == []
+
+
+def test_bare_super_admin_call_answers_with_reaction_only(env):
+    run(env, _message(32, chat=STRANGER, text="@conv_bot", sender=ADMIN))
+    assert env.state.is_group_allowed(STRANGER.id)
+    assert env.bot.messages == []
+    assert [message_id for message_id, _ in env.bot.reactions] == [32]
+
+
+def test_super_admin_file_without_call_does_not_connect_group(env, monkeypatch):
+    monkeypatch.setattr(group.settings, "group_auto_convert", True)
+    run(env, _message(33, chat=STRANGER, document=_document("a.pdf"), sender=ADMIN))
+    assert not env.state.is_group_allowed(STRANGER.id)
+    assert env.queued == []
+
+
+def test_removed_group_is_silent_until_super_admin_calls(env):
+    env.state.remove_group(ALLOWED.id)
+    run(env, _message(34, caption="@conv_bot", document=_document("a.pdf")))
+    assert env.queued == [] and env.bot.messages == []
+    run(env, _message(35, text="/convert@conv_bot", sender=ADMIN))
+    assert env.state.is_group_allowed(ALLOWED.id)
+    run(env, _message(36, caption="@conv_bot", document=_document("b.pdf")))
+    assert [q[0] for q in env.queued] == ["b.pdf"]
+
+
+def test_daily_limit_per_member(env):
+    env.state.set_daily_limit(2)
+    album = [_message(40 + i, document=_document(f"{i}.pdf"), album="L", caption="@conv_bot" if i == 0 else None)
+             for i in range(3)]
+    run(env, *album)
+    assert [q[0] for q in env.queued] == ["0.pdf", "1.pdf"]
+    assert env.bot.messages and "лимит" in env.bot.messages[-1].lower()
+    # Другой участник считает свои файлы отдельно, супер-админ — без лимита.
+    run(env, _message(50, caption="@conv_bot", document=_document("bob.pdf"), sender=User(id=2, first_name="Bob", is_bot=False)))
+    for i in range(3):
+        run(env, _message(60 + i, caption="@conv_bot", document=_document(f"boss{i}.pdf"), sender=ADMIN))
+    assert len(env.queued) == 6
+    assert env.state.used(ADMIN.id) == 0
+
+
+def test_failed_conversion_returns_file_to_limit(env):
+    env.state.set_daily_limit(1)
+    run(env, _message(70, caption="@conv_bot", document=_document("a.pdf")))
+    assert env.state.used(ALICE.id) == 1
+    env.refunds[0]()
+    assert env.state.used(ALICE.id) == 0
+    run(env, _message(71, caption="@conv_bot", document=_document("b.pdf")))
+    assert [q[0] for q in env.queued] == ["a.pdf", "b.pdf"]
+
+
+def test_migration_carries_access_to_supergroup(env):
+    env.state.activate_group(-555, "Старая", ADMIN.id)
+    migrated = Message(message_id=80, date=NOW, chat=Chat(id=-555, type=Chat.GROUP), migrate_to_chat_id=-100555)
+    asyncio.run(group.migration_handler(Update(update_id=80, message=migrated), env.context))
+    assert env.state.is_group_allowed(-100555)
+    assert not env.state.is_group_allowed(-555)
