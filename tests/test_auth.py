@@ -36,3 +36,17 @@ def test_listed_user_is_not_enough_for_unknown_group(restricted):
 
 def test_channels_are_never_served(restricted):
     assert not auth.check_chat_access("channel", -1001, 1)
+
+
+def test_super_admin_has_private_access_without_listing(restricted, monkeypatch):
+    monkeypatch.setattr(auth.settings, "super_admin_ids", frozenset({42}))
+    assert auth.is_super_admin(42)
+    assert auth.check_chat_access("private", 42, 42)
+    assert not auth.is_super_admin(1)
+
+
+def test_group_connected_by_super_admin_is_allowed(restricted, fresh_state):
+    assert not auth.check_chat_access("supergroup", -3003, 77)
+    fresh_state.activate_group(-3003, "Новая", by=42)
+    assert auth.check_chat_access("supergroup", -3003, 77)
+    assert not auth.check_chat_access("private", 77, 77)

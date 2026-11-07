@@ -38,6 +38,15 @@ class IncomingFile:
     # Из группы: только PDF ↔ DOCX, без транслитерации.
     group: bool = False
     user_id: int = 0
+    # Вызывается, если файл не сконвертирован и не отправлен (возврат в лимит).
+    on_failure: Callable[[], None] | None = None
+
+    def failed(self) -> None:
+        if self.on_failure is not None:
+            try:
+                self.on_failure()
+            except Exception:
+                logger.exception("on_failure callback failed for %s", self.name)
 
 
 @dataclass
@@ -130,10 +139,12 @@ class BatchProcessor:
             except ConversionError as exc:
                 logger.error("Conversion of %s failed: %s", file.name, exc)
                 progress.update(index, "❌", _short_error(exc))
+                file.failed()
                 return
             except Exception:
                 logger.exception("Unexpected error converting %s", file.name)
                 progress.update(index, "❌", "внутренняя ошибка")
+                file.failed()
                 return
             elapsed = time.monotonic() - started
 
@@ -156,6 +167,7 @@ class BatchProcessor:
         except Exception:
             logger.exception("Failed to send %s", output_name)
             progress.update(index, "❌", "не удалось отправить файл")
+            file.failed()
             return
         progress.update(index, "⚠️" if result.warnings else "✅", "; ".join(result.warnings) or "готово")
 
@@ -170,21 +182,28 @@ async def enqueue_media(
     message_id: int,
     user_id: int,
     group: bool = False,
+    on_failure: Callable[[], None] | None = None,
 ) -> None:
     """Скачивает файл из Telegram и ставит в пачку; об ошибках пишет ответом на ``notify``."""
+    file = IncomingFile(
+        name=file_name, kind=kind, payload=b"", message_id=message_id,
+        group=group, user_id=user_id, on_failure=on_failure,
+    )
     if media.file_size and media.file_size > MAX_FILE_SIZE_BYTES:
+        file.failed()
         await notify.reply_text(f"⚠️ {file_name} больше {MAX_FILE_SIZE_MB} МБ — Telegram не даёт ботам скачать такой файл.")
         return
-    telegram_file = await media.get_file()
-    payload = bytes(await telegram_file.download_as_bytearray())
-    if not payload:
+    try:
+        telegram_file = await media.get_file()
+        file.payload = bytes(await telegram_file.download_as_bytearray())
+    except Exception:
+        file.failed()
+        raise
+    if not file.payload:
+        file.failed()
         await notify.reply_text(f"⚠️ {file_name}: пустой файл.")
         return
-    await batch_processor.add(
-        bot,
-        notify.chat_id,
-        IncomingFile(name=file_name, kind=kind, payload=payload, message_id=message_id, group=group, user_id=user_id),
-    )
+    await batch_processor.add(bot, notify.chat_id, file)
 
 
 class _ProgressMessage:

@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import logging
 
-from telegram import BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats, Update
+from telegram import (
+    BotCommand,
+    BotCommandScopeAllGroupChats,
+    BotCommandScopeAllPrivateChats,
+    BotCommandScopeChat,
+    Update,
+)
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -17,6 +23,8 @@ from telegram.ext import (
 )
 
 from ..config.settings import settings
+from .admin import CALLBACK as ADMIN_CALLBACK
+from .admin import admin_callback_handler, admin_command, admin_text_handler
 from .group import bot_membership_handler, group_handler, migration_handler
 from .handlers import (
     document_handler,
@@ -26,6 +34,7 @@ from .handlers import (
     transliteration_handler,
 )
 from .processing import TRANSLIT_CALLBACK
+from .state import bot_state
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +70,15 @@ def build_application() -> Application:
     groups = filters.ChatType.GROUPS
 
     application.add_handler(CommandHandler(["start", "help"], start_handler, filters=private))
+    application.add_handler(CommandHandler("admin", admin_command, filters=private))
     # Старые кнопки имели вид translit:<token>, новые — просто translit.
     application.add_handler(CallbackQueryHandler(transliteration_handler, pattern=rf"^{TRANSLIT_CALLBACK}"))
+    application.add_handler(CallbackQueryHandler(admin_callback_handler, pattern=rf"^{ADMIN_CALLBACK}(:|$)"))
     application.add_handler(CallbackQueryHandler(stale_button_handler))
     application.add_handler(MessageHandler(private & filters.Document.ALL, document_handler))
     application.add_handler(MessageHandler(private & filters.PHOTO, photo_handler))
+    # Кнопка «Администрирование» и ввод своего лимита (остальным текст в личке не нужен).
+    application.add_handler(MessageHandler(private & filters.TEXT & ~filters.COMMAND, admin_text_handler))
 
     application.add_handler(MessageHandler(groups & filters.StatusUpdate.MIGRATE, migration_handler))
     # Только новые сообщения: правка подписи не должна запускать конвертацию повторно.
@@ -91,6 +104,15 @@ async def _set_commands(application: Application) -> None:
         )
     except Exception:
         logger.warning("Failed to set bot commands", exc_info=True)
+    # /admin видят только супер-админы (если уже писали боту).
+    for admin_id in settings.super_admin_ids:
+        try:
+            await application.bot.set_my_commands(
+                [BotCommand("start", "Как пользоваться"), BotCommand("admin", "Администрирование")],
+                scope=BotCommandScopeChat(admin_id),
+            )
+        except Exception as exc:
+            logger.info("Cannot set commands for super admin %d: %s", admin_id, exc)
 
 
 async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -104,12 +126,13 @@ def main() -> None:
     if not settings.telegram_token:
         raise SystemExit("TELEGRAM_BOT_TOKEN не задан — заполните .env")
     logger.info(
-        "Starting bot: provider=%s model=%s mode=%s concurrency=%d groups=%d auto=%s",
+        "Starting bot: provider=%s model=%s mode=%s concurrency=%d groups=%d auto=%s super_admins=%d",
         settings.llm_provider,
         settings.llm_model,
         settings.pdf_conversion_mode,
         settings.llm_concurrency,
-        len(settings.allowed_chat_ids),
+        len(bot_state().allowed_groups()),
         settings.group_auto_convert,
+        len(settings.super_admin_ids),
     )
     build_application().run_polling(allowed_updates=Update.ALL_TYPES)

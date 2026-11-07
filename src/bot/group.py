@@ -1,11 +1,15 @@
 """Бот в группе: PDF → DOCX и DOCX/DOC/WPS → PDF для всех участников.
 
-Группа должна быть в ALLOWED_CHAT_IDS. Бота вызывают:
+Группа должна быть в ALLOWED_CHAT_IDS или подключена супер-админом: если
+супер-админ вызвал бота в незнакомой группе, она молча получает доступ.
+В остальных незнакомых группах бот молчит. Бота вызывают:
 
 - файлом с подписью, где упомянут бот (@имя) или есть команда (/convert);
 - упоминанием или командой в ответ на сообщение с файлом — конвертируется
   файл из того сообщения;
 - файлом в ответ на сообщение бота.
+
+У участников дневной лимит файлов (у супер-админов — нет).
 
 С GROUP_AUTO_CONVERT=true конвертируется каждый подходящий файл без вызова.
 Тогда бот должен видеть все сообщения группы: быть администратором или
@@ -14,17 +18,18 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import time
 
 from telegram import ChatMember, Message, MessageEntity, Update
-from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from ..config.settings import settings
 from ..conversion.pipeline import GROUP_KINDS, detect_kind
-from .auth import GROUP_CHAT_TYPES, check_group_access, log_user_access
+from .auth import GROUP_CHAT_TYPES, check_group_access, is_super_admin, log_user_access
 from .processing import enqueue_media
+from .state import bot_state
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +37,9 @@ ALBUM_TTL_SECONDS = 120
 HELP_COMMANDS = ("start", "help")
 
 UNSUPPORTED = "В группе я конвертирую только PDF → DOCX и DOCX, DOC, WPS → PDF."
-NOT_CONNECTED = (
-    "🚫 Эта группа не подключена к боту.\n"
-    "Чтобы подключить, добавьте её ID <code>{chat_id}</code> в ALLOWED_CHAT_IDS "
-    "на сервере и перезапустите бота."
-)
+LIMIT_REACHED = "⛔ Дневной лимит — {limit} файлов на участника — исчерпан, пропущено: {skipped}. Счётчик обнулится в полночь."
+# Подтверждение супер-админу, что группа подключена, — реакцией, без сообщения.
+CONNECTED_REACTION = "👌"
 
 
 def group_help(username: str) -> str:
@@ -127,6 +130,7 @@ async def group_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     # Что конвертировать: (документ, id сообщения, на которое ответить).
     targets: list[tuple] = []
+    called = explicit
     if own is not None:
         called = explicit or replies_to_bot(message, bot.id) or albums.is_called(album)
         if album and called:
@@ -145,11 +149,19 @@ async def group_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     else:
         return
 
+    state = bot_state()
+    super_admin = is_super_admin(user.id)
     if not check_group_access(chat.id):
-        logger.info("Group %d (%s) is not allowed; user %d", chat.id, chat.title or "-", user.id)
-        if explicit:
-            await message.reply_text(NOT_CONNECTED.format(chat_id=chat.id), parse_mode=ParseMode.HTML)
-        return
+        if not (super_admin and called):
+            logger.info("Group %d (%s) is not allowed; user %d", chat.id, chat.title or "-", user.id)
+            return
+        state.activate_group(chat.id, chat.title, user.id)
+        logger.info("Group %d (%s) connected by super admin %d", chat.id, chat.title or "-", user.id)
+        if not targets:
+            await _acknowledge(message)
+            return
+    else:
+        state.remember_title(chat.id, chat.title)
 
     if not targets:
         if message.photo:
@@ -158,6 +170,7 @@ async def group_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             await message.reply_text(group_help(bot.username))
         return
 
+    skipped = 0
     for document, reply_to in targets:
         file_name = document.file_name or "document"
         kind = detect_kind(file_name)
@@ -165,6 +178,12 @@ async def group_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             if explicit or not settings.group_auto_convert:
                 await message.reply_text(f"⚠️ {file_name}: {UNSUPPORTED}")
             continue
+        refund = None
+        if not super_admin:
+            if not state.try_consume(user.id):
+                skipped += 1
+                continue
+            refund = functools.partial(state.refund, user.id)
         log_user_access(user.id, user.username, f"group {chat.id} upload {file_name}")
         await enqueue_media(
             bot,
@@ -175,35 +194,46 @@ async def group_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             message_id=reply_to,
             user_id=user.id,
             group=True,
+            on_failure=refund,
         )
+    if skipped:
+        logger.info("User %d hit the daily limit in group %d, skipped %d", user.id, chat.id, skipped)
+        await message.reply_text(LIMIT_REACHED.format(limit=state.daily_limit, skipped=skipped))
+
+
+async def _acknowledge(message: Message) -> None:
+    try:
+        await message.set_reaction(CONNECTED_REACTION)
+    except Exception as exc:
+        # Реакции в группе могут быть запрещены — тогда просто молча.
+        logger.debug("Reaction failed: %s", exc)
 
 
 async def bot_membership_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Бота добавили в группу: подсказка или ID для подключения."""
+    """Бота добавили в группу или убрали из неё — только запись в лог, без сообщений в чат."""
     change = update.my_chat_member
     if not change or change.chat.type not in GROUP_CHAT_TYPES:
         return
     absent = (ChatMember.LEFT, ChatMember.BANNED)
-    if change.old_chat_member.status not in absent or change.new_chat_member.status in absent:
-        return
-    chat = change.chat
-    allowed = check_group_access(chat.id)
-    logger.info(
-        "Bot added to %s %r (id %d) by user %d, allowed=%s",
-        chat.type, chat.title, chat.id, change.from_user.id, allowed,
-    )
-    text = group_help(context.bot.username) if allowed else NOT_CONNECTED.format(chat_id=chat.id)
-    try:
-        await context.bot.send_message(chat.id, text, parse_mode=ParseMode.HTML if not allowed else None)
-    except Exception:
-        logger.exception("Failed to greet group %d", chat.id)
+    joined = change.old_chat_member.status in absent and change.new_chat_member.status not in absent
+    left = change.new_chat_member.status in absent and change.old_chat_member.status not in absent
+    if joined or left:
+        chat = change.chat
+        logger.info(
+            "Bot %s %s %r (id %d) by user %d, allowed=%s",
+            "added to" if joined else "removed from",
+            chat.type, chat.title, chat.id, change.from_user.id, check_group_access(chat.id),
+        )
 
 
 async def migration_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Группа стала супергруппой — у неё новый ID, старый в ALLOWED_CHAT_IDS больше не подходит."""
+    """Группа стала супергруппой — у неё новый ID; доступ переносится на него."""
     message = update.effective_message
-    if message and message.migrate_to_chat_id:
-        logger.warning(
-            "Group %d migrated to supergroup %d — update ALLOWED_CHAT_IDS",
-            message.chat_id, message.migrate_to_chat_id,
-        )
+    if not message or not message.migrate_to_chat_id:
+        return
+    old, new = message.chat_id, message.migrate_to_chat_id
+    carried = bot_state().migrate_group(old, new)
+    logger.warning(
+        "Group %d migrated to supergroup %d, access carried over: %s%s",
+        old, new, carried, " — update ALLOWED_CHAT_IDS in .env" if old in settings.allowed_chat_ids else "",
+    )

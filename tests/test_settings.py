@@ -60,3 +60,20 @@ def test_group_settings_default_to_closed(env):
 def test_auto_pdf_mode_is_accepted(env):
     env.setenv("PDF_CONVERSION_MODE", "auto")
     assert settings_module.load_settings().pdf_conversion_mode == "auto"
+
+
+def test_super_admin_and_limit_settings(env, tmp_path):
+    env.setenv("SUPER_ADMIN_IDS", "42, 43")
+    env.setenv("DAILY_FILE_LIMIT", "0")
+    env.setenv("STATE_FILE", str(tmp_path / "st.json"))
+    env.setenv("TIMEZONE", "UTC")
+    loaded = settings_module.load_settings()
+    assert loaded.super_admin_ids == frozenset({42, 43})
+    assert loaded.daily_file_limit == 0
+    assert loaded.state_file == tmp_path / "st.json"
+    assert loaded.timezone == "UTC"
+
+
+def test_limit_defaults_to_20(env):
+    env.delenv("DAILY_FILE_LIMIT", raising=False)
+    assert settings_module.load_settings().daily_file_limit == 20

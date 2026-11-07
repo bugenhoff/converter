@@ -149,3 +149,26 @@ def test_group_members_get_separate_batches():
     bot = asyncio.run(scenario())
     assert len(bot.sent_messages) == 2
     assert len(bot.documents) == 2
+
+
+def test_failed_file_triggers_refund():
+    refunds = []
+
+    def convert(*_):
+        raise ConversionError("boom")
+
+    async def scenario():
+        bot = FakeBot()
+        processor = BatchProcessor(convert, convert)
+        await processor.add(
+            bot, -100,
+            IncomingFile("a.pdf", "pdf", b"x", 1, group=True, user_id=1, on_failure=lambda: refunds.append(1)),
+        )
+        await processor.add(
+            bot, -100,
+            IncomingFile("b.pdf", "pdf", b"x", 2, group=True, user_id=1, on_failure=lambda: refunds.append(2)),
+        )
+        await processor.wait_idle()
+
+    asyncio.run(scenario())
+    assert sorted(refunds) == [1, 2]
