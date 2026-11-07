@@ -43,6 +43,7 @@ HELP_COMMANDS = ("start", "help")
 
 UNSUPPORTED = "В группе я конвертирую только PDF → DOCX и DOCX, DOC, WPS → PDF."
 LIMIT_REACHED = "⛔ Дневной лимит — {limit} файлов на участника — исчерпан, пропущено: {skipped}. Счётчик обнулится в полночь."
+NO_DOCUMENT_IN_REPLY = "В сообщении, на которое вы ответили, нет документа. " + UNSUPPORTED
 PARTIAL_ALBUM = (
     "ℹ️ Конвертирую только этот файл: остальные файлы альбома мне не видны. "
     "Чтобы конвертировался весь альбом, сделайте бота администратором группы."
@@ -185,6 +186,10 @@ async def group_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             return
     elif explicit:
         replied = message.reply_to_message
+        # Ответ на сообщение из другого чата приходит как external_reply. Так же
+        # приходят ответы на сообщения, отправленные до того, как группа стала
+        # супергруппой: они остались в истории старой группы с другим ID.
+        external = message.external_reply
         if replied is not None and replied.document is not None:
             if replied.media_group_id:
                 # Ответ на файл из альбома — весь альбом, который видел бот.
@@ -194,6 +199,8 @@ async def group_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 partial_album = len(files) == 1
             else:
                 targets = [(replied.document, message.message_id)]
+        elif external is not None and external.document is not None:
+            targets = [(external.document, message.message_id)]
     else:
         return
 
@@ -212,8 +219,10 @@ async def group_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         state.remember_title(chat.id, chat.title)
 
     if not targets:
-        if message.photo:
+        if message.photo or _replied_photo(message):
             await message.reply_text(UNSUPPORTED)
+        elif message.reply_to_message is not None or message.external_reply is not None:
+            await message.reply_text(NO_DOCUMENT_IN_REPLY)
         else:
             await message.reply_text(group_help(bot.username))
         return
@@ -249,6 +258,11 @@ async def group_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await message.reply_text(LIMIT_REACHED.format(limit=state.daily_limit, skipped=skipped))
     if partial_album and not await _sees_all_messages(bot, chat.id):
         await message.reply_text(PARTIAL_ALBUM)
+
+
+def _replied_photo(message: Message) -> bool:
+    replied, external = message.reply_to_message, message.external_reply
+    return bool((replied is not None and replied.photo) or (external is not None and external.photo))
 
 
 _visibility: dict[int, tuple[float, bool]] = {}

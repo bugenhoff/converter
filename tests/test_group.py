@@ -5,7 +5,7 @@ import datetime
 from types import SimpleNamespace
 
 import pytest
-from telegram import Chat, Document, Message, MessageEntity, PhotoSize, Update, User
+from telegram import Chat, Document, ExternalReplyInfo, Message, MessageEntity, MessageOriginUser, PhotoSize, Update, User
 
 from src.bot import group
 
@@ -54,7 +54,7 @@ def _entities(text):
 
 
 def _message(message_id, *, chat=ALLOWED, text=None, caption=None, document=None, photo=None,
-             reply_to=None, album=None, sender=ALICE, bot=None):
+             reply_to=None, album=None, sender=ALICE, bot=None, external=None):
     message = Message(
         message_id=message_id,
         date=NOW,
@@ -67,6 +67,7 @@ def _message(message_id, *, chat=ALLOWED, text=None, caption=None, document=None
         document=document,
         photo=photo,
         reply_to_message=reply_to,
+        external_reply=external,
         media_group_id=album,
     )
     if bot is not None:
@@ -316,3 +317,33 @@ def test_migration_carries_access_to_supergroup(env):
     asyncio.run(group.migration_handler(Update(update_id=80, message=migrated), env.context))
     assert env.state.is_group_allowed(-100555)
     assert not env.state.is_group_allowed(-555)
+
+
+def _old_group_reply(**media):
+    """Сообщение из истории группы до превращения в супергруппу — другой чат."""
+    return ExternalReplyInfo(
+        origin=MessageOriginUser(date=NOW, sender_user=User(id=3, first_name="Андрей", is_bot=False)),
+        chat=Chat(id=-4001, type=Chat.GROUP, title="FullProCleaning"),
+        message_id=12,
+        **media,
+    )
+
+
+def test_reply_to_file_from_before_supergroup_migration_is_converted(env):
+    reply = _message(100, text="/convert@conv_bot", external=_old_group_reply(document=_document("Facades.wps")))
+    run(env, reply)
+    assert env.queued == [("Facades.wps", "wps", 100, True)]
+    assert env.bot.messages == []
+
+
+def test_reply_to_message_without_file_says_so(env):
+    original = _message(101, text="Готовый образец коммерческого предложения")
+    run(env, _message(102, text="/convert@conv_bot", reply_to=original))
+    assert env.queued == []
+    assert env.bot.messages == [group.NO_DOCUMENT_IN_REPLY]
+
+
+def test_reply_to_photo_is_unsupported(env):
+    photo = (PhotoSize(file_id="p", file_unique_id="p", width=10, height=10),)
+    run(env, _message(103, text="/convert@conv_bot", external=_old_group_reply(photo=photo)))
+    assert env.bot.messages == [group.UNSUPPORTED]
