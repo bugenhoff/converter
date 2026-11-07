@@ -1,4 +1,4 @@
-"""Единая точка входа: файл любого поддерживаемого типа → DOCX."""
+"""Единая точка входа: файл любого поддерживаемого типа → DOCX (или PDF для группы)."""
 
 from __future__ import annotations
 
@@ -11,33 +11,36 @@ from ..config.settings import settings
 from .docx_builder import PageContent, build_docx
 from .errors import ConversionError
 from .layout import plain_text
-from .libreoffice import doc_to_docx
+from .libreoffice import doc_to_docx, to_pdf
 from .llm import LLMError, transcribe_pages
 from .ocr import image_to_docx_ocr, pdf_to_docx_direct, pdf_to_docx_ocr
 from .pages import PdfPages, image_to_page
+from .pdf_layout import pdf_page_count, pdf_to_docx_layout, profile_pdf
 
 logger = logging.getLogger(__name__)
 
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp")
+# Текстовые документы, которые LibreOffice открывает сам.
+WORD_KINDS = ("docx", "doc", "wps")
+# В группе: PDF → DOCX, документы Word и WPS → PDF.
+GROUP_KINDS = ("pdf", *WORD_KINDS)
 
 StatusCallback = Callable[[str], None]
 
 
 @dataclass
 class ConversionResult:
-    docx: bytes
+    data: bytes
     pages: int | None = None
     warnings: list[str] = field(default_factory=list)
+    extension: str = ".docx"
 
 
 def detect_kind(file_name: str) -> str | None:
     name = file_name.lower()
-    if name.endswith(".pdf"):
-        return "pdf"
-    if name.endswith(".docx"):
-        return "docx"
-    if name.endswith(".doc"):
-        return "doc"
+    for kind in ("pdf", *WORD_KINDS):
+        if name.endswith(f".{kind}"):
+            return kind
     if name.endswith(IMAGE_EXTENSIONS):
         return "image"
     return None
@@ -53,7 +56,7 @@ def convert_document(
     status = on_status or (lambda _: None)
     if kind == "docx":
         result = ConversionResult(payload)
-    elif kind == "doc":
+    elif kind in ("doc", "wps"):
         status("LibreOffice")
         result = ConversionResult(doc_to_docx(payload, file_name))
     elif kind == "pdf":
@@ -62,7 +65,32 @@ def convert_document(
         result = _convert_image(payload, status)
     else:
         raise ConversionError(f"Неподдерживаемый тип файла: {file_name}")
+    _log_result(file_name, kind, result, started)
+    return result
 
+
+def convert_for_group(
+    payload: bytes,
+    file_name: str,
+    kind: str,
+    on_status: StatusCallback | None = None,
+) -> ConversionResult:
+    """Режим группы: PDF → DOCX, DOCX/DOC/WPS → PDF."""
+    started = time.monotonic()
+    status = on_status or (lambda _: None)
+    if kind == "pdf":
+        result = _pdf_auto(payload, status)
+    elif kind in WORD_KINDS:
+        status("LibreOffice → PDF")
+        pdf = to_pdf(payload, file_name)
+        result = ConversionResult(pdf, pages=pdf_page_count(pdf), extension=".pdf")
+    else:
+        raise ConversionError(f"В группе конвертируются только PDF, DOCX, DOC и WPS: {file_name}")
+    _log_result(file_name, kind, result, started)
+    return result
+
+
+def _log_result(file_name: str, kind: str, result: ConversionResult, started: float) -> None:
     logger.info(
         "Converted %s (%s, pages=%s) in %.1fs, warnings=%s",
         file_name,
@@ -71,11 +99,12 @@ def convert_document(
         time.monotonic() - started,
         result.warnings,
     )
-    return result
 
 
 def _convert_pdf(payload: bytes, status: StatusCallback) -> ConversionResult:
     mode = settings.pdf_conversion_mode
+    if mode == "auto":
+        return _pdf_auto(payload, status)
     if mode == "llm_only":
         return _pdf_via_llm(payload, status)
     if mode == "llm_first":
@@ -107,6 +136,20 @@ def _convert_image(payload: bytes, status: StatusCallback) -> ConversionResult:
             raise
         status("OCR")
         return ConversionResult(image_to_docx_ocr(payload))
+
+
+def _pdf_auto(payload: bytes, status: StatusCallback) -> ConversionResult:
+    """Цифровой PDF — вёрсткой через pdf2docx, скан — распознаванием моделью."""
+    profile = profile_pdf(payload)
+    if not profile.is_digital:
+        logger.info("PDF looks scanned (%d of %d pages), using LLM", profile.scan_pages, profile.pages)
+        return _pdf_via_llm(payload, status)
+    status("перенос вёрстки")
+    try:
+        return ConversionResult(pdf_to_docx_layout(payload), pages=profile.pages)
+    except ConversionError as exc:
+        logger.warning("Layout conversion failed (%s), falling back to LLM", exc)
+        return _pdf_via_llm(payload, status)
 
 
 def _pdf_via_llm(payload: bytes, status: StatusCallback) -> ConversionResult:

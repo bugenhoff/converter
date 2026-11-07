@@ -1,4 +1,4 @@
-"""Обработчики Telegram: /start, приём файлов и фото, кнопка транслитерации."""
+"""Обработчики личного чата: /start, приём файлов и фото, кнопка транслитерации."""
 
 from __future__ import annotations
 
@@ -12,23 +12,19 @@ from telegram.ext import ContextTypes
 from ..conversion.pipeline import IMAGE_EXTENSIONS, detect_kind
 from ..conversion.transliteration import transliterate_docx_bytes
 from .auth import log_user_access, require_auth
-from .processing import IncomingFile, batch_processor
+from .processing import enqueue_media
 
 logger = logging.getLogger(__name__)
 
-# Больше Bot API скачать не даёт.
-MAX_FILE_SIZE_MB = 20
-MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-
 START_TEXT = (
     "Привет! 👋\n\n"
-    "Пришли один или несколько файлов .doc, .docx, .pdf или фото/скан страницы "
+    "Пришли один или несколько файлов .doc, .docx, .wps, .pdf или фото/скан страницы "
     f"({', '.join(IMAGE_EXTENSIONS)}) — верну .docx с сохранением оформления.\n\n"
     "Несколько файлов, отправленных подряд, обрабатываются вместе и параллельно. "
     "Под каждым готовым документом есть кнопка «Транслитерация» (латиница → кириллица)."
 )
 UNSUPPORTED_TEXT = (
-    "Я умею конвертировать только .doc, .docx, .pdf и изображения "
+    "Я умею конвертировать только .doc, .docx, .wps, .pdf и изображения "
     f"({', '.join(IMAGE_EXTENSIONS)})."
 )
 
@@ -67,20 +63,14 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def _enqueue(update: Update, context: ContextTypes.DEFAULT_TYPE, media, file_name: str, kind: str) -> None:
     message = update.message
-    if media.file_size and media.file_size > MAX_FILE_SIZE_BYTES:
-        await message.reply_text(f"⚠️ {file_name} больше {MAX_FILE_SIZE_MB} МБ — Telegram не даёт ботам скачать такой файл.")
-        return
-
-    telegram_file = await media.get_file()
-    payload = bytes(await telegram_file.download_as_bytearray())
-    if not payload:
-        await message.reply_text(f"⚠️ {file_name}: пустой файл.")
-        return
-
-    await batch_processor.add(
+    await enqueue_media(
         context.bot,
-        update.effective_chat.id,
-        IncomingFile(name=file_name, kind=kind, payload=payload, message_id=message.message_id),
+        message,
+        media,
+        file_name,
+        kind,
+        message_id=message.message_id,
+        user_id=update.effective_user.id,
     )
 
 
